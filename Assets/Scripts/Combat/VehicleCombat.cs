@@ -54,13 +54,14 @@ public class VehicleCombat : MonoBehaviour
     bool _torpedoLeft;          // 鱼雷左右管交替
 
     /// <summary>
-    /// 血量总倍率（2026-11-05 用户要求"一台车大概 1 万血"）。
-    /// 炮艇 1400 × 7.14 ≈ 9996，主战 1200 × 7.14 ≈ 8568，重装 2000 × 7.14 ≈ 14280。
-    /// 伤害同步乘同样的倍数，所以**击杀所需时间不变**，只是数字变大、看着更爽。
+    /// 血量总倍率。**2026-11-12 用户要求取消**：不再把数字放大到"一台车一万血"，
+    /// 直接显示 .asset 里的原始值（轻坦 800、主战 1200、炮艇 7003）。
+    /// 历史：曾经是 7.14（2026-11-05 的"一万血"要求），血量和伤害同时放大、TTK 不变，
+    /// 只是看着爽；用户觉得没必要乘算，缩回去了。
     /// </summary>
-    public const float HpScale = 7.14f;
+    public const float HpScale = 1f;
     /// <summary>伤害总倍率，必须和 HpScale 相等，否则 TTK 会变。</summary>
-    public const float DamageScale = 7.14f;
+    public const float DamageScale = 1f;
 
     // ---- 命中率统计（验收/调参用，静态计数）----
     public static int ShotsFired;
@@ -169,8 +170,11 @@ public class VehicleCombat : MonoBehaviour
         var w = DeckWeapon;
         if (w == null || !Alive || _phys == null || !_phys.HasDeckGun) return false;
         if (Time.time < _nextMgFireTime) return false;
-        // 机枪固定用自己第一种子弹（防空弹），不跟主炮的弹药选择走 ——
+        // 机枪固定用自己第一种子弹（专用机枪弹 Ammo_mg），不跟主炮的弹药选择走 ——
         // 原来用 AmmoFor(w) 会跟着主炮的 ammoIndex 变，机枪打到坦克身上时伤害/穿深会莫名其妙地变。
+        // 2026-11-12 修：以前 mg_aa 的第一位挂着 Ammo_ap（主炮那发 260mm 穿深穿甲弹），
+        // 导致 12.7mm 机枪能正面打穿主战坦克 220mm 首上。现在换成 Ammo_mg（穿深 40mm、
+        // 对装甲 ×0.15），机枪打不穿坦克，只打飞机和软目标。
         var ammo = (w.ammoTypes != null && w.ammoTypes.Length > 0) ? w.ammoTypes[0] : null;
         if (ammo == null) return false;
         _nextMgFireTime = Time.time + w.reloadTime;
@@ -774,7 +778,7 @@ public class VehicleCombat : MonoBehaviour
 
         // 命中音效：按穿透结果放不同的声音
         // 机枪/机炮打中装甲是"叮"的金属脆响，不是炮弹的"砰"
-        bool smallCal = ammo != null && (ammo.id == "aa" || ammo.id == "cannon");
+        bool smallCal = ammo != null && (ammo.id == "aa" || ammo.id == "cannon" || ammo.id == "mg");
         string hitClip = smallCal ? Sfx.HitMg
                        : result == HitResult.Ricochet ? Sfx.HitRicochet
                        : result == HitResult.NonPenetrating ? Sfx.HitNonPen

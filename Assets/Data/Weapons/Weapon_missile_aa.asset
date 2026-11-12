@@ -20,4 +20,5 @@ MonoBehaviour:
   projectileSpeed: 480
   ammoTypes:
   - {fileID: 11400000, guid: df15fb46bc4716f4abac613205b4a362, type: 2}
+  ammoCapacity: 1
   mountedDomain: 2

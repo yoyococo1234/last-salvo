@@ -612,7 +612,8 @@ public static class VehicleModelBinder
     }
 
     /// <summary>
-    /// 机翼挂架上的 8 枚导弹（左右各 4）。打一枚藏一枚，复活重挂。
+    /// 机翼挂架上的导弹（默认左右各 4 共 8 枚；备弹数更少时按备弹挂，见 stores.total）。
+    /// 打一枚藏一枚，复活 / 商店补弹时重挂。
     /// 模型本身是"空挂架"版本，弹体全部是运行时拼的简易几何。
     /// </summary>
     static void BuildWingMissiles(Transform root, Transform model, VehicleDef def)
@@ -626,6 +627,13 @@ public static class VehicleModelBinder
         if (stores == null) stores = root.gameObject.AddComponent<WingStores>();
         stores.model = model;
         stores.perSide = 4;
+        // 2026-11-12：机翼上挂几枚按**实际备弹**来 —— 空空导弹只有 1 发时就只挂 1 枚，
+        // 否则挂 8 枚却只能打 1 发，看着像无限弹。
+        int cap = 0;
+        if (def.weapons != null)
+            foreach (var w in def.weapons)
+                if (w != null && w.ammoCapacity > 0) { cap = w.ammoCapacity; break; }
+        stores.total = Mathf.Max(1, cap);
         stores.mat = def.modelMaterial != null ? def.modelMaterial : DarkMat();
     }
 

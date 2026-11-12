@@ -18,8 +18,10 @@ public class WingStores : MonoBehaviour
 
     [Tooltip("挂弹用的模型节点（由 VehicleModelBinder 填）")]
     public Transform model;
-    [Tooltip("每侧挂几枚")]
+    [Tooltip("每侧挂几枚（total = 0 时才生效）")]
     public int perSide = 4;
+    [Tooltip("总共挂几枚（0 = 用 perSide×2）。设成实际备弹数，让机翼上的弹和能打出的发数一致")]
+    public int total = 0;
     public Material mat;
 
     int _fired;
@@ -48,34 +50,36 @@ public class WingStores : MonoBehaviour
         int idx = 0;
         // 按「左1 右1 左2 右2…」交替登记，发射时 ConsumeOne 顺序取，
         // 这样打出去的是左右交替的，不会先把一侧打空（原来 side 在外层，左翼 4 枚打完才轮到右翼）。
-        for (int i = 0; i < perSide; i++)
+        // 2026-11-12：改成按**实际备弹数**挂（total > 0 时），奇数就只挂一侧 ——
+        // 否则空空导弹只有 1 发、机翼上却挂着 8 枚，看着像无限弹。
+        int count = total > 0 ? total : perSide * 2;
+        for (int i = 0; i < count; i++)
         {
-            for (int side = -1; side <= 1; side += 2)
-            {
-                float t = 0.34f + i * 0.14f;
-                float mx = side * halfSpan * t;
-                Vector3 wingMesh = WingUnderside(mf, mx, midZ);
+            int side = (i % 2 == 0) ? -1 : 1;
+            int row = i / 2;
+            float t = 0.34f + row * 0.14f;
+            float mx = side * halfSpan * t;
+            Vector3 wingMesh = WingUnderside(mf, mx, midZ);
 
-                var m = new GameObject($"Missile_{idx}");
-                m.transform.SetParent(transform, false);
-                // 模型此刻的变换已经是最终值，直接换算成世界坐标挂上去
-                m.transform.position = mf.transform.TransformPoint(wingMesh);
-                m.transform.localRotation = Quaternion.identity;
+            var m = new GameObject($"Missile_{idx}");
+            m.transform.SetParent(transform, false);
+            // 模型此刻的变换已经是最终值，直接换算成世界坐标挂上去
+            m.transform.position = mf.transform.TransformPoint(wingMesh);
+            m.transform.localRotation = Quaternion.identity;
 
-                Part(m.transform, PrimitiveType.Cylinder, new Vector3(0.16f, 0.55f, 0.16f),
-                     new Vector3(0f, 0f, 0.55f), new Vector3(90f, 0f, 0f), useMat);
-                Part(m.transform, PrimitiveType.Sphere, new Vector3(0.16f, 0.22f, 0.16f),
-                     new Vector3(0f, 0f, 1.12f), Vector3.zero, useMat);
-                Part(m.transform, PrimitiveType.Cube, new Vector3(0.42f, 0.02f, 0.20f),
-                     new Vector3(0f, 0f, 0.10f), Vector3.zero, useMat);
-                Part(m.transform, PrimitiveType.Cube, new Vector3(0.02f, 0.38f, 0.20f),
-                     new Vector3(0f, 0f, 0.10f), Vector3.zero, useMat);
-                Part(m.transform, PrimitiveType.Cube, new Vector3(0.08f, 0.30f, 0.40f),
-                     new Vector3(0f, 0.30f, 0.40f), Vector3.zero, useMat);
+            Part(m.transform, PrimitiveType.Cylinder, new Vector3(0.16f, 0.55f, 0.16f),
+                 new Vector3(0f, 0f, 0.55f), new Vector3(90f, 0f, 0f), useMat);
+            Part(m.transform, PrimitiveType.Sphere, new Vector3(0.16f, 0.22f, 0.16f),
+                 new Vector3(0f, 0f, 1.12f), Vector3.zero, useMat);
+            Part(m.transform, PrimitiveType.Cube, new Vector3(0.42f, 0.02f, 0.20f),
+                 new Vector3(0f, 0f, 0.10f), Vector3.zero, useMat);
+            Part(m.transform, PrimitiveType.Cube, new Vector3(0.02f, 0.38f, 0.20f),
+                 new Vector3(0f, 0f, 0.10f), Vector3.zero, useMat);
+            Part(m.transform, PrimitiveType.Cube, new Vector3(0.08f, 0.30f, 0.40f),
+                 new Vector3(0f, 0.30f, 0.40f), Vector3.zero, useMat);
 
-                all.Add(m);
-                idx++;
-            }
+            all.Add(m);
+            idx++;
         }
     }
 
