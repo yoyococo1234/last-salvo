@@ -19,6 +19,7 @@ public static class Bindings
         Forward, Back, Left, Right,
         Fire, Scope, FreeLook, SwitchWeapon, MgMode,
         LockOn, Shop, Pause, Garage, Restart, Decoy,
+        LevelFlight,
     }
 
     public struct Entry
@@ -46,6 +47,9 @@ public static class Bindings
         new Entry { act = Act.Garage,       label = "回车库换车",    def = KeyCode.G },
         // 2026-11-12 用户要求：删掉 R（重开一局）—— 改成按 P 暂停后在面板里选"是否重新开始"。
         new Entry { act = Act.Decoy,        label = "干扰弹（船）",  def = KeyCode.X },
+        // 2026-11-12：飞机姿态放开成 360° 自由之后，需要一条"倒飞失控时救命"的键。
+        // 按住 = 机翼水平 + 机头压回水平，松手恢复自由操控。
+        new Entry { act = Act.LevelFlight,  label = "一键改平（飞机）", def = KeyCode.F },
     };
 
     static Dictionary<Act, KeyCode> _map;

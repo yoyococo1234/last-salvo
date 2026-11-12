@@ -189,6 +189,11 @@ public class MatchHUD : MonoBehaviour
                  n > 0 ? CGold : new Color(1f, 1f, 1f, 0.35f), TextAnchor.MiddleRight);
         }
 
+        // 飞机：提示一键改平（2026-11-12 姿态放开成 360° 可空翻之后，倒飞失控要靠它救）
+        if (def != null && def.domain == Domain.Air)
+            Text(new Rect(x + w - 230f, y + 92f, 210f, 22f), "F 一键改平", _s18,
+                 new Color(1f, 1f, 1f, 0.45f), TextAnchor.MiddleRight);
+
         // 部位状态（部位伤害系统）：一排小方块，打坏的标红
         var vmod = p.GetComponent<VehicleModule>();
         if (vmod != null) DrawModuleStatus(vmod, def != null ? def.domain : Domain.Land, x, y - 32f, w);

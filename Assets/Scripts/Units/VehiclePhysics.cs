@@ -43,14 +43,14 @@ public class VehiclePhysics : MonoBehaviour
     [Header("飞行手感（战争雷霆式：鼠标控姿态 + W/S 油门 + A/D 横滚）")]
     [Tooltip("鼠标灵敏度（虚拟摇杆）")]
     public float airMouseSensitivity = 0.5f;
-    [Tooltip("鼠标松手后虚拟摇杆回中速度")]
-    public float airRecenterSpeed = 0.9f;
-    [Tooltip("最大俯仰角速度（度/秒）")]
-    public float airPitchRate = 55f;
+    [Tooltip("鼠标松手后虚拟摇杆回中速度。2026-11-12 从 0.9 降到 0.5：长按转向不再被回中顶住")]
+    public float airRecenterSpeed = 0.5f;
+    [Tooltip("最大俯仰角速度（度/秒）。2026-11-12 放开姿态后从 55 提到 80，翻跟头才不至于太慢")]
+    public float airPitchRate = 80f;
     [Tooltip("最大偏航角速度（度/秒）")]
-    public float airYawRate = 32f;
-    [Tooltip("横滚角速度（度/秒）")]
-    public float airRollRate = 120f;
+    public float airYawRate = 40f;
+    [Tooltip("横滚角速度（度/秒）。2026-11-12 从 120 提到 200，桶滚要滚得起来")]
+    public float airRollRate = 200f;
     [Tooltip("靠横滚带出的转弯强度（度/秒，满横滚时）")]
     public float airBankTurnRate = 42f;
     [Tooltip("姿态跟随输入的速度。太小的话模型会明显滞后于飞行方向，看着像横着飘")]
@@ -484,24 +484,32 @@ public class VehiclePhysics : MonoBehaviour
 
         if (airYaw == 0f && Mathf.Abs(transform.eulerAngles.y) > 0.01f) airYaw = transform.eulerAngles.y;
 
-        // ================= 输入 =================
         if (aiControlled)
         {
-            // AI：朝 aiSteer 偏航，保持 flightAltitude 高度
+            // ================= AI：欧拉角目标姿态 =================
+            // AI 只要平稳飞、按时到点，不需要空翻，所以保留原来那套"目标姿态 + Slerp"。
             airYaw += aiSteer * def.turnSpeed * 0.8f * dt;
             airRoll = Mathf.Lerp(airRoll, -aiSteer * bankAngle, 3f * dt);
             float wantY = groundY + flightAltitude;
             airPitch = Mathf.Lerp(airPitch, Mathf.Clamp((wantY - pos.y) * 0.12f, -18f, 18f), 2f * dt);
             airThrottle = Mathf.Lerp(airThrottle, Mathf.Abs(aiThrottle) < 0.05f ? 0.65f : 0.85f, 2f * dt);
+
+            // 横滚带出转弯（压杆转弯）
+            airYaw += Mathf.Sin(airRoll * Mathf.Deg2Rad) * airBankTurnRate * dt;
+            airPitch = Mathf.Clamp(airPitch, -70f, 70f);
+            airYaw = Mathf.Repeat(airYaw, 360f);
+
+            var targetRot = Quaternion.Euler(-airPitch, airYaw, -airRoll);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, airResponse * dt);
         }
         else
         {
-            // 玩家：W/S 油门，A/D 横滚，鼠标控俯仰偏航（虚拟摇杆，松手自动回中）
+            // ================= 玩家：四元数累积，姿态 360° 自由（2026-11-12）=================
+            // 用户要求"能空翻"（参照战争雷霆 / 皇牌空战）。旧实现是欧拉角 + 夹紧
+            // （俯仰 ±70°、滚转 ±85°），飞机永远翻不过来，而且欧拉角过了 ±90° 会万向锁抽风。
+            // 现在每帧把一小步旋转**乘**到当前姿态上：绕机身右轴俯仰、绕机身前轴滚转、
+            // 绕世界 up 偏航 —— 滚多少圈、翻多少个跟头都不会出奇异值。
             airThrottle = Mathf.Clamp01(airThrottle + Bindings.AxisV * airThrottleRate * dt);
-
-            float rollIn = Bindings.AxisH;
-            airRoll = Mathf.Clamp(airRoll + rollIn * airRollRate * dt, -85f, 85f);
-            if (Mathf.Abs(rollIn) < 0.05f) airRoll = Mathf.MoveTowards(airRoll, 0f, 45f * dt);
 
             // 按住 C 环视时，鼠标只转镜头 —— 不要再把飞机拐走（不然一边看一边侧翻）
             if (!CameraFollow.FreeLookActive)
@@ -512,18 +520,35 @@ public class VehiclePhysics : MonoBehaviour
             _airAimX = Mathf.MoveTowards(_airAimX, 0f, airRecenterSpeed * dt);
             _airAimY = Mathf.MoveTowards(_airAimY, 0f, airRecenterSpeed * dt);
 
-            airPitch += _airAimY * airPitchRate * dt;     // 鼠标上推 = 抬头
-            airYaw += _airAimX * airYawRate * dt;
+            if (Bindings.Held(Bindings.Act.LevelFlight))
+            {
+                // 一键改平：机翼水平 + 机头压回水平（保留当前航向）。倒飞 / 螺旋里按住救命。
+                Vector3 fwd = transform.forward;
+                Vector3 flat = new Vector3(fwd.x, 0f, fwd.z);
+                if (flat.sqrMagnitude > 0.04f)   // 垂直上下飞时没有水平投影，跳过
+                {
+                    var want = Quaternion.LookRotation(flat.normalized, Vector3.up);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, want, 6f * dt);
+                }
+            }
+            else
+            {
+                // 鼠标虚拟摇杆 → 角速度（松手回中，手感沿用原来那套）
+                float pitchRate = _airAimY * airPitchRate;      // 鼠标上推 = 抬头
+                float yawRate = _airAimX * airYawRate;
+                float rollRate = Bindings.AxisH * airRollRate;
+
+                // 滚转带出转弯：用当前真实姿态算倾角（右滚为正），不再依赖 airRoll 字段
+                float bankSin = Vector3.Dot(transform.up, transform.right);
+                yawRate += bankSin * airBankTurnRate;
+
+                var rot = transform.rotation;
+                rot = Quaternion.AngleAxis(yawRate * dt, Vector3.up) * rot;         // 世界偏航
+                rot = rot * Quaternion.AngleAxis(-pitchRate * dt, Vector3.right);   // 机身俯仰（负角 = 抬头）
+                rot = rot * Quaternion.AngleAxis(-rollRate * dt, Vector3.forward);  // 机身滚转（负角 = 右滚）
+                transform.rotation = rot;
+            }
         }
-
-        // 横滚带出转弯（压杆转弯）
-        airYaw += Mathf.Sin(airRoll * Mathf.Deg2Rad) * airBankTurnRate * dt;
-        airPitch = Mathf.Clamp(airPitch, -70f, 70f);
-        airYaw = Mathf.Repeat(airYaw, 360f);
-
-        // ================= 姿态 =================
-        var targetRot = Quaternion.Euler(-airPitch, airYaw, -airRoll);
-        transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, airResponse * dt);
 
         // ================= 速度 =================
         float targetSpeed = Mathf.Lerp(def.speed * 0.45f, def.speed * 1.15f, airThrottle) * SpeedMul;
@@ -538,7 +563,9 @@ public class VehiclePhysics : MonoBehaviour
         {
             pos.y = airCeiling;
             transform.position = pos;
-            airPitch = Mathf.MoveTowards(airPitch, -20f, 40f * dt);
+            // 到顶压机头：AI 走欧拉角，玩家走四元数（右乘绕机身右轴正角 = 压机头）
+            if (aiControlled) airPitch = Mathf.MoveTowards(airPitch, -20f, 40f * dt);
+            else transform.rotation = transform.rotation * Quaternion.AngleAxis(25f * dt, Vector3.right);
         }
 
         // 撞地 = 坠毁
