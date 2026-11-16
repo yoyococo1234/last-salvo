@@ -52,7 +52,9 @@ public class CameraFollow : MonoBehaviour
     [Tooltip("机位抬高量 = 跟机距离 × 该值。0.5 ≈ 从斜上方俯看机背")]
     public float airHeightFactor = 0.5f;
     [Tooltip("视线相对机头压低多少度。平飞时视野 50° 压 18° = 地平线在画面上方 22%")]
-    public float airLookDownDeg = 18f;
+    // 2026-11-16 用户："机枪瞄准时飞机不在正中心，也修" —— 18° 的压低量让机头准星
+    // 明显跑到画面上方。压到 6°，准星基本落在中心，同时还能看到一点前方地面。
+    public float airLookDownDeg = 6f;
     [Tooltip("跟机距离下限（米）。太近时飞机一抬头，机身会横满屏幕 —— 这是硬下限")]
     public float airMinDistance = 17f;
     [Tooltip("跟机距离上限（米）")]

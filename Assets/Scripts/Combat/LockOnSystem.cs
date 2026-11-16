@@ -215,6 +215,26 @@ public class LockOnSystem : MonoBehaviour
         float tof = Vector3.Distance(player.transform.position, aim) / speed;
         return aim + vel * tof;
     }
+    /// <summary>
+    /// 载具的**视觉中心**：把所有启用的渲染器包围盒合并起来取中心。
+    /// 比 transform.position / Collider.bounds 更贴近"玩家看到的那条船"，锁定框用它才不会偏。
+    /// 拿不到渲染器时返回 Vector3.zero（调用方自己兜底）。
+    /// </summary>
+    static Vector3 VisualCenter(VehicleCombat v)
+    {
+        if (v == null) return Vector3.zero;
+        var rends = v.GetComponentsInChildren<Renderer>();
+        bool any = false;
+        Bounds b = default;
+        foreach (var r in rends)
+        {
+            if (r == null || !r.enabled) continue;
+            if (!any) { b = r.bounds; any = true; }
+            else b.Encapsulate(r.bounds);
+        }
+        return any ? b.center : Vector3.zero;
+    }
+
     void OnGUI()
     {
         if (!Active) return;
@@ -235,11 +255,11 @@ public class LockOnSystem : MonoBehaviour
             return;
         }
 
-        // 2026-11-16 用户："舰炮和鱼雷按 Ctrl 的瞄准有问题"。
-        // 锚点从 transform.position + 1.2 m 换成**碰撞盒中心**，和名字牌（MatchHUD）用同一个点 ——
-        // 船体的 transform 在吃水线、模型又高，两套 UI 各用各的锚点就会一上一下对不齐。
-        var tcol = Target.GetComponent<Collider>();
-        Vector3 aim = tcol != null ? tcol.bounds.center : Target.transform.position + Vector3.up * 1.2f;
+        // 2026-11-16 用户："舰炮和鱼雷按 Ctrl 的瞄准有问题 —— 框画偏了，偏上"。
+        // 碰撞盒中心 / transform 原点都偏高（船的 transform 在甲板附近），
+        // 改用**渲染网格的合并包围盒中心**（真正的视觉中心），框才会套在船身上。
+        Vector3 aim = VisualCenter(Target);
+        if (aim == Vector3.zero) aim = Target.transform.position + Vector3.up * 1.2f;
         Vector3 sp2 = cam.WorldToScreenPoint(aim);
         if (sp2.z <= 0f) return;
         float px = sp2.x;
