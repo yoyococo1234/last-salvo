@@ -71,8 +71,8 @@ MonoBehaviour:
   modelTurretLowerPrefab: {fileID: 919132149155446097, guid: 2c290659cacd54f4185f523332f30016, type: 3}
   modelElevatingPivot: {x: 0, y: 0.95, z: 0.15}
   elevatingFollow: 0.25
-  maxElevationOverride: 12
-  maxDepressionOverride: -6
+  maxElevationOverride: 20
+  maxDepressionOverride: -8
   turretYawLimit: 150
   turretBoneName: Turret
   muzzleBoneName: Muzzle

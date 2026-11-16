@@ -35,7 +35,7 @@ public static class BattlefieldTerrainBuilder
     public const float DesignHeightRange = 24f;         // 设计坐标高度范围（最高 18 m）
     public const float BaseY = DesignBaseY * Scale;             // -100
     public const float HeightRange = DesignHeightRange * Scale; // 400
-    public const float WaterLevel = 0f;              // 海平面（2026-11-16 抬到 0，与 BattlefieldTerrain.WaterLevel 一致）
+    public const float WaterLevel = 4f;              // 海平面（2026-11-16 抬到 +4，与 BattlefieldTerrain 一致）
 
     // 地表层序号（和 splatmap 通道一一对应）
     public const int L_SAND = 0, L_GRASS = 1, L_DIRT = 2, L_ROCK = 3, L_SNOW = 4;
@@ -347,8 +347,8 @@ public static class BattlefieldTerrainBuilder
         // 2026-11-16 用户："海平面太低，可以扩宽沙滩，但一定增高海平面"。
         // 海平面抬到 0 之后，滩头整体抬高并把坡度摊平：原来是 14→20 设计米内掉 1.5 m（约 100 m 宽的陡岸），
         // 现在是 12→30 设计米内掉 2.7 m（约 300 m 宽的缓沙滩），水线推到 zz≈18。
-        if (zz <= 12f) h = 0.9f;                                                  // 滩头靠陆侧
-        else if (zz <= 30f) h = Mathf.Lerp(0.9f, -1.8f, SStep(12f, 30f, zz));     // 宽沙滩：缓坡入水
+        if (zz <= 12f) h = 1.15f;                                                 // 滩头靠陆侧
+        else if (zz <= 30f) h = Mathf.Lerp(1.15f, -1.8f, SStep(12f, 30f, zz));    // 宽沙滩：缓坡入水
         else if (zz <= 44f) h = Mathf.Lerp(-1.8f, -4.6f, SStep(30f, 44f, zz));    // 大陆架
         else h = Mathf.Lerp(-4.6f, -6.2f, SStep(44f, 60f, zz));                   // 深水盆地
 

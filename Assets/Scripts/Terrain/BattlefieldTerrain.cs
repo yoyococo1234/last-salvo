@@ -21,7 +21,7 @@ public static class BattlefieldTerrain
     // 原来是 -6.6667（地形生成时的设计值 -0.4×Scale）。抬到 -2.6667 = **+4 m**：
     // 实测水域占比只从 35.4% 涨到 35.6%（海岸线很陡，不会淹掉地图），但船整体高了 4 m，
     // 舰炮能越过滩头看到/打到岸上的目标。要再调就改这一个常量 + 场景里 Water_Sea 的 Y。
-    public const float WaterLevel = 0f;    // 海平面（2026-11-16 由 -2.6667 再抬 2.667 m：用户"海平面还是太低，一定增高"）
+    public const float WaterLevel = 4f;    // 海平面（2026-11-16 再抬到 +4；城区/平原基准 8~33 m，再高就淹城）
     public const float Scale = MapSize / 120f;   // 设计坐标 → 世界坐标（16.667）
 
     static Terrain[] cache;
