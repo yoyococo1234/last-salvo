@@ -84,7 +84,8 @@ public class Torpedo : MonoBehaviour
         // 射程兜底：武器定义里的 range 万一没配好（0 或几十米），鱼雷会在出管两秒内自己没了。
         // 这里给个下限，保证至少跑 200 m 才可能耗尽。
         _range = Mathf.Max(200f, _range);
-        _life = _range / _speed + 3f;
+        // 2026-11-16 用户要求：飞满 **2 倍射程**才自毁（1~2 倍之间伤害线性衰减）
+        _life = _range * 2f / _speed + 3f;
 
         transform.position = origin;
         transform.rotation = Quaternion.LookRotation(_dir);
@@ -211,7 +212,7 @@ public class Torpedo : MonoBehaviour
                 if (target != null && target.Alive)
                 {
                     LastKillReason = "hit:" + target.name;
-                    target.TakeDamage(_damage, _ammo, transform.position, _owner);
+                    target.TakeDamage(_damage * RangeDmgMul(), _ammo, transform.position, _owner);
                     VehicleCombat.ShotsHit++;
                     Explode(true);
                     return;
@@ -248,7 +249,7 @@ public class Torpedo : MonoBehaviour
             if (d.sqrMagnitude <= (hullRadius + hitRadius) * (hullRadius + hitRadius))
             {
                 LastKillReason = "hit:" + other.name;
-                other.TakeDamage(_damage, _ammo, transform.position, _owner);
+                other.TakeDamage(_damage * RangeDmgMul(), _ammo, transform.position, _owner);
                 VehicleCombat.ShotsHit++;
                 Explode(true);
                 return;
@@ -281,12 +282,23 @@ public class Torpedo : MonoBehaviour
         }
         else _shallowTime = 0f;
 
-        if (_travelled >= _range)
+        if (_travelled >= _range * 2f)
         {
             LastKillReason = $"range({_travelled:F0}/{_range:F0})";
             Explode(false);
             return;
         }
+    }
+
+    /// <summary>
+    /// 射程外伤害衰减（2026-11-16 用户要求"1 倍到 2 倍之间伤害衰减"）：
+    /// 标称射程内 100%，之后线性掉，飞到 2 倍射程时只剩 30%。
+    /// </summary>
+    float RangeDmgMul()
+    {
+        if (_travelled <= _range) return 1f;
+        float k = Mathf.Clamp01((_travelled - _range) / Mathf.Max(1f, _range));
+        return Mathf.Lerp(1f, 0.3f, k);
     }
 
     /// <summary>
@@ -309,7 +321,7 @@ public class Torpedo : MonoBehaviour
             Vector3 to = vc.transform.position - transform.position;
             to.y = 0f;
             float dist = to.magnitude;
-            if (dist > _range || dist < 3f) continue;
+            if (dist > _range * 2f || dist < 3f) continue;
 
             float ang = Vector3.Angle(_dir, to);
             if (ang > seekConeDeg) continue;

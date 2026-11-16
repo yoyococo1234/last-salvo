@@ -67,6 +67,7 @@ public class MatchHUD : MonoBehaviour
         // 2026-11-10：命中标记复活成准星处的四角斜线（击穿金色 / 未击穿·跳弹红色）。
         // 语音播报照旧（Sfx.VoRicochet / VoNonPen / VoPen），两者不冲突：语音给"听"，标记给"看"。
         DrawHitFeedback();
+        DrawKillFx();             // 2026-11-16：玩家击毁目标的中央特效
         DrawGunBrokenAlert(mm);
         if (mm.matchOver) DrawSettlement(mm);
 
@@ -1272,20 +1273,24 @@ public class MatchHUD : MonoBehaviour
                 Fill(new Rect(px - 1f, py - 1f, 2f, 2f), new Color(1f, 1f, 1f, 0.9f));
         }
 
-        // 自己的箭头最后画（永远压在光点上面）：**相对开局朝向**旋转的箭头，
-        // 开局那一刻 hd = 0 → 箭头朝上；之后左转/右转箭头跟着转，地图不动。
-        // 2026-11-16 用户："船非得后面托两个睾丸吗" → 删掉原来那两片尾翼，
-        // 只留一个干净的水滴箭头 + 中心亮点。
+        // 自己的图标最后画（永远压在光点上面）：**相对开局朝向**旋转，
+        // 开局那一刻 hd = 0 → 朝上；之后左转/右转图标跟着转，地图不动。
+        // 2026-11-16 用户："我让你画小地图的自己不是让你船飞机画的一样啊" ——
+        // 现在跟敌方一样按类型分形状（方=陆 / 菱=海 / 三角=空），
+        // 另外加一根**朝前的短线**，这样既能认类型又能看出自己在朝哪走。
         float hd = Mathf.DeltaAngle(_mapNorthYaw, p.transform.eulerAngles.y) * Mathf.Deg2Rad;
         Vector2 upv = new Vector2(Mathf.Sin(hd), -Mathf.Cos(hd));      // 屏幕坐标（y 向下）
-        for (int i = 1; i <= 11; i++)
+
+        // 朝向短线
+        for (int i = 1; i <= 7; i++)
         {
-            float f = i / 11f;
-            float d = 13f * f;
-            float w = 5.6f * (1f - f * 0.85f);        // 尾粗头尖，收得更干净
+            float f = i / 7f;
+            float w = 3.6f * (1f - f * 0.55f);
+            float d = 7f + 10f * f;
             Fill(new Rect(cx + upv.x * d - w * 0.5f, cy + upv.y * d - w * 0.5f, w, w), me);
         }
-        Fill(new Rect(cx - 2f, cy - 2f, 4f, 4f), new Color(1f, 1f, 1f, 0.95f));
+        // 中心：按载具类型画（比敌方光点大一圈）
+        PlayerBlip(cx, cy, me, p.Def != null ? p.Def.domain : Domain.Land);
 
         Text(new Rect(cx - R, cy + R + 4f, R * 2f, 22f),
              $"小地图 {Mathf.RoundToInt(radarRange)} m　■陆 ◆海 ▲空", _s18,
@@ -1321,6 +1326,81 @@ public class MatchHUD : MonoBehaviour
         {
             Fill(new Rect(px - u * 0.75f, py - u * 0.75f, u * 1.5f, u * 1.5f), c);
         }
+    }
+
+    /// <summary>
+    /// 我方图标（2026-11-16 用户要求"我方也要按类型分"）：同一套形状但画大一圈，
+    /// 中间再压一个白点，保证在一堆光点里能一眼找到自己。朝向靠外面那根短线表示。
+    /// </summary>
+    void PlayerBlip(float px, float py, Color c, Domain d)
+    {
+        const float u = 4.6f;
+        if (d == Domain.Air)
+        {
+            // 三角
+            Fill(new Rect(px - u * 0.5f, py - u * 1.1f, u, u), c);
+            Fill(new Rect(px - u * 1.1f, py - u * 0.1f, u, u), c);
+            Fill(new Rect(px - u * 0.5f, py - u * 0.1f, u, u), c);
+            Fill(new Rect(px + u * 0.1f, py - u * 0.1f, u, u), c);
+        }
+        else if (d == Domain.Sea)
+        {
+            // 菱形
+            Fill(new Rect(px - u * 0.5f, py - u * 1.2f, u, u), c);
+            Fill(new Rect(px - u * 1.2f, py - u * 0.5f, u, u), c);
+            Fill(new Rect(px - u * 0.5f, py - u * 0.5f, u, u), c);
+            Fill(new Rect(px + u * 0.2f, py - u * 0.5f, u, u), c);
+            Fill(new Rect(px - u * 0.5f, py + u * 0.2f, u, u), c);
+        }
+        else
+        {
+            // 方块
+            Fill(new Rect(px - u * 0.8f, py - u * 0.8f, u * 1.6f, u * 1.6f), c);
+        }
+        Fill(new Rect(px - 1.6f, py - 1.6f, 3.2f, 3.2f), new Color(1f, 1f, 1f, 0.95f));
+    }
+
+    // ---------------- 击杀特效（2026-11-16 用户要求） ----------------
+
+    static float _killFxAt = -99f;
+    static string _killFxText = "";
+
+    /// <summary>玩家亲手击毁一台载具时由 MatchManager 调用：屏幕中央来一发扩散环 + 击毁字样。</summary>
+    public static void ShowKillFx(string victimName)
+    {
+        _killFxAt = Time.unscaledTime;
+        _killFxText = string.IsNullOrEmpty(victimName) ? "击 毁" : ("击 毁  " + victimName);
+    }
+
+    void DrawKillFx()
+    {
+        const float DUR = 1.1f;
+        float age = Time.unscaledTime - _killFxAt;
+        if (age < 0f || age > DUR) return;
+
+        float k = age / DUR;
+        // 前 12% 快速淡入，之后一路淡出
+        float a = k < 0.12f ? (k / 0.12f) : (1f - Mathf.InverseLerp(0.12f, 1f, k));
+        float cx = _vw * 0.5f, cy = VH * 0.5f - 96f;
+
+        // 扩散环（40 个点拼一圈，往外飞散并变淡）
+        float r = Mathf.Lerp(24f, 104f, k);
+        var ringCol = new Color(1f, 0.42f, 0.20f, a * 0.9f);
+        for (int i = 0; i < 40; i++)
+        {
+            float ang = i / 40f * Mathf.PI * 2f;
+            float w = Mathf.Lerp(5f, 2f, k);
+            Fill(new Rect(cx + Mathf.Cos(ang) * r - w * 0.5f,
+                          cy + Mathf.Sin(ang) * r - w * 0.5f, w, w), ringCol);
+        }
+
+        // 字：先放大再回落
+        float sc = Mathf.Lerp(1.22f, 1f, Mathf.Clamp01(k * 3f));
+        var st = UiKit.Style(Mathf.RoundToInt(36f * sc), TextAnchor.MiddleCenter, true);
+        var old = GUI.color;
+        GUI.color = new Color(1f, 0.92f, 0.80f, a);
+        GUI.Label(new Rect(cx - 300f, cy - 24f, 600f, 48f), _killFxText, st);
+        GUI.color = old;
     }
 
     // ---------------- 命中反馈（击穿 / 未击穿 / 跳弹） ----------------

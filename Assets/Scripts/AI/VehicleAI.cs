@@ -111,6 +111,58 @@ public class VehicleAI : MonoBehaviour
 
         Drive();
         AimAndFire();
+        TickDecoy();
+    }
+
+    // ==================== 干扰弹（2026-11-16 用户要求）====================
+    // 以前只有玩家能按 X 放干扰弹，AI 炮艇面对鱼雷只会硬吃。
+    // 现在按 AI 难度（Skill）决定"反应过来并放弹"的概率：
+    //   最低难度 ≈ 18%，最高难度 ≈ 85%；每次判定失败不再重掷，等下一次 think。
+
+    [Tooltip("AI 炮艇带几发干扰弹")]
+    public int decoyCharges = 3;
+    [Tooltip("两发之间的最短间隔（秒）")]
+    public float decoyCooldown = 7f;
+    [Tooltip("鱼雷进这个距离才算冲着我来（米）")]
+    public float decoyDetectRange = 240f;
+
+    int _decoyLeft = -1;
+    float _nextDecoyAt;
+
+    void TickDecoy()
+    {
+        if (_self == null || _self.Def == null || _self.Def.domain != Domain.Sea) return;
+        if (_decoyLeft < 0) _decoyLeft = Mathf.Max(0, decoyCharges);
+        if (_decoyLeft <= 0 || Time.time < _nextDecoyAt) return;
+        if (Torpedo.All.Count == 0) return;
+
+        for (int i = Torpedo.All.Count - 1; i >= 0; i--)
+        {
+            var t = Torpedo.All[i];
+            if (t == null) continue;
+            if (t.Team >= 0 && t.Team == _self.team) continue;      // 自己人的雷不躲
+
+            Vector3 d = transform.position - t.transform.position;
+            d.y = 0f;
+            float dist = d.magnitude;
+            if (dist > decoyDetectRange) continue;
+
+            Vector3 tf = t.transform.forward;
+            tf.y = 0f;
+            if (tf.sqrMagnitude < 0.01f) continue;
+            if (Vector3.Angle(tf, d) > 45f) continue;               // 不是冲我来的
+
+            // 技能映射：0.3 → 18%，1.0 → 85%
+            float p = Mathf.Lerp(0.18f, 0.85f, Skill01);
+            if (Random.value > p) return;                           // 这次没反应过来
+
+            _decoyLeft--;
+            _nextDecoyAt = Time.time + decoyCooldown;
+            Vector3 pos = transform.position - tf.normalized * 10f;
+            Decoy.Deploy(pos, BattlefieldTerrain.WaterLevel, 6f, 12f, _self.team);
+            StateText = "放干扰弹";
+            return;
+        }
     }
 
     // ==================== 感知 ====================

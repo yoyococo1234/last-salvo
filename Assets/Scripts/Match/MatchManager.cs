@@ -691,6 +691,9 @@ public class MatchManager : MonoBehaviour
             killerUnit.gold += reward;
             kills[Mathf.Clamp(killerUnit.team, 0, 1)]++;
             PushFeed($"{killerUnit.Label} 击毁 {victim.name}  +{reward}");
+            // 2026-11-16 用户要求：玩家亲手击毁时来一发击杀特效（不是死亡爆炸，是击杀提示）
+            if (killerUnit.isHuman)
+                MatchHUD.ShowKillFx(victim.Def != null ? victim.Def.displayName : victim.name);
         }
         else
         {

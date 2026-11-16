@@ -24,8 +24,18 @@ public class ZoneMarker : MonoBehaviour
     Material _beamMat;
 
     const int RingSegments = 128;
-    const float RingLift = 0.5f;      // 离地高度（够高避免 Z-fighting，又不显浮空）
+    const float RingLift = 0.5f;      // 陆地上离地高度（够高避免 Z-fighting，又不显浮空）
+    // 2026-11-16 用户："海面的据点光圈比船还高，应该在海平面上" ——
+    // 水面据点只用 6 cm，贴着海面；否则 0.5 m 会让圈浮在浪尖上面、看着比船还高。
+    const float WaterRingLift = 0.06f;
     const float BeamHeight = 300f;     // 光柱高度（用户要求再高一点）
+
+    /// <summary>这个位置的光圈应该抬高多少：水上贴海面，陆上用常规离地高度。</summary>
+    static float RingLiftAt(float x, float z)
+    {
+        float h = BattlefieldTerrain.SampleHeight(x, z);
+        return h < BattlefieldTerrain.WaterLevel - 0.2f ? WaterRingLift : RingLift;
+    }
 
     public static void BuildAll(List<ZoneState> zones)
     {
@@ -94,8 +104,8 @@ public class ZoneMarker : MonoBehaviour
             float xo = center.x + cx * rOut, zo = center.z + cz * rOut;
             float xi = center.x + cx * rIn, zi = center.z + cz * rIn;
 
-            verts.Add(new Vector3(xi, GroundY(xi, zi) + RingLift, zi));
-            verts.Add(new Vector3(xo, GroundY(xo, zo) + RingLift, zo));
+            verts.Add(new Vector3(xi, GroundY(xi, zi) + RingLiftAt(xi, zi), zi));
+            verts.Add(new Vector3(xo, GroundY(xo, zo) + RingLiftAt(xo, zo), zo));
             cols.Add(Color.white);
             cols.Add(Color.white);
         }
