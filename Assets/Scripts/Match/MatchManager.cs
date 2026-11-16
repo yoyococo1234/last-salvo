@@ -545,7 +545,9 @@ public class MatchManager : MonoBehaviour
             for (float gz = -half; gz <= half; gz += 25f)
             {
                 float d = BattlefieldTerrain.WaterDepth(gx, gz);
-                if (d <= 0f) continue;
+                // 2026-11-16：以前只要 d>0（哪怕 10 cm 浅滩）就算"能放船"，
+                // 海平面抬高后浅滩变多，船就被放到沙滩上。现在至少 2.5 m 深。
+                if (d < 2.5f) continue;
                 if (!SeaFits(gx, gz)) continue;
                 // 得分 = 水深 + 与已有载具的最近距离（距离优先，避免叠船）
                 float near = NearestVehicleDist(new Vector3(gx, 0f, gz));

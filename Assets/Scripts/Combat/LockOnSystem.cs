@@ -235,7 +235,11 @@ public class LockOnSystem : MonoBehaviour
             return;
         }
 
-        Vector3 aim = Target.transform.position + Vector3.up * 1.2f;
+        // 2026-11-16 用户："舰炮和鱼雷按 Ctrl 的瞄准有问题"。
+        // 锚点从 transform.position + 1.2 m 换成**碰撞盒中心**，和名字牌（MatchHUD）用同一个点 ——
+        // 船体的 transform 在吃水线、模型又高，两套 UI 各用各的锚点就会一上一下对不齐。
+        var tcol = Target.GetComponent<Collider>();
+        Vector3 aim = tcol != null ? tcol.bounds.center : Target.transform.position + Vector3.up * 1.2f;
         Vector3 sp2 = cam.WorldToScreenPoint(aim);
         if (sp2.z <= 0f) return;
         float px = sp2.x;

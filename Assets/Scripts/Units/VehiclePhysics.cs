@@ -394,7 +394,10 @@ public class VehiclePhysics : MonoBehaviour
         if (waterDepth < wadeDepth)
         {
             stateText = "搁浅";
-            speed = Mathf.MoveTowards(speed, 0f, brakeDecel * Time.deltaTime);
+            // 2026-11-16 用户反馈"出生点在沙子里，也能开进沙滩"：
+            // 原来是慢慢减速（MoveTowards 0），惯性还会把船一路推上沙滩。
+            // 现在**正速度直接截断**，只留倒车（speed < 0）能自己退出去。
+            speed = Mathf.Min(speed, 0f);
 
             // ---------- 沿"更深"的方向滑回水里 ----------
             // 抄的是 World of Warships 12.3 的做法：船碰到浅水不是卡死，而是"滑"。
@@ -430,7 +433,14 @@ public class VehiclePhysics : MonoBehaviour
 
         // 船转向比车慢一点
         transform.Rotate(0f, steer * def.turnSpeed * 0.7f * Time.deltaTime, 0f, Space.World);
+        Vector3 before = transform.position;
         transform.position += transform.forward * speed * Time.deltaTime;
+        // 2026-11-16 硬保护：不许往**更浅**的地方开（水深低于半个吃水就退回上一帧）。
+        // 只拦"变浅"，所以卡在沙滩上时倒车回水里仍然是允许的，不会把人锁死。
+        float beforeDepth = WaterDepthAt(before.x, before.z);
+        float afterDepth = WaterDepthAt(transform.position.x, transform.position.z);
+        if (afterDepth < wadeDepth * 0.5f && afterDepth < beforeDepth - 0.01f)
+            transform.position = before;
         ClampToBounds();
 
         // 浮在水面 + 轻微摇晃。
