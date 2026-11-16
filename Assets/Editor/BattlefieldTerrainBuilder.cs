@@ -35,7 +35,7 @@ public static class BattlefieldTerrainBuilder
     public const float DesignHeightRange = 24f;         // 设计坐标高度范围（最高 18 m）
     public const float BaseY = DesignBaseY * Scale;             // -100
     public const float HeightRange = DesignHeightRange * Scale; // 400
-    public const float WaterLevel = -0.16f * Scale;              // -2.667（海平面，2026-11-12 抬高 4 m，与 BattlefieldTerrain.WaterLevel 保持一致）
+    public const float WaterLevel = 0f;              // 海平面（2026-11-16 抬到 0，与 BattlefieldTerrain.WaterLevel 一致）
 
     // 地表层序号（和 splatmap 通道一一对应）
     public const int L_SAND = 0, L_GRASS = 1, L_DIRT = 2, L_ROCK = 3, L_SNOW = 4;
@@ -304,7 +304,8 @@ public static class BattlefieldTerrainBuilder
 
         // ---------- 海岸 ----------
         float coast = CoastProfile(x, z);
-        float k = SStep(12.5f, 19f, z);
+        // 过渡带跟着新海岸剖面放宽（12→22），免得陆地高度和滩头 0.9 之间拉出断层
+        float k = SStep(12f, 22f, z);
         float h = Mathf.Lerp(land, coast, k);
 
         // ---------- 微起伏（城区和公路压住）----------
@@ -343,10 +344,13 @@ public static class BattlefieldTerrainBuilder
         float zz = z + (Fbm(x * 0.055f + 21.3f, 5.5f, 3) - 0.5f) * 3.2f;
 
         float h;
-        if (zz <= 14f) h = 0.3f;                                                  // 滩头靠陆侧
-        else if (zz <= 20f) h = Mathf.Lerp(0.3f, -1.2f, SStep(14f, 20f, zz));     // 滩头：浅水→沙地
-        else if (zz <= 30f) h = Mathf.Lerp(-1.2f, -4.6f, SStep(20f, 30f, zz));    // 大陆架
-        else h = Mathf.Lerp(-4.6f, -6.0f, SStep(30f, 58f, zz));                   // 深水盆地
+        // 2026-11-16 用户："海平面太低，可以扩宽沙滩，但一定增高海平面"。
+        // 海平面抬到 0 之后，滩头整体抬高并把坡度摊平：原来是 14→20 设计米内掉 1.5 m（约 100 m 宽的陡岸），
+        // 现在是 12→30 设计米内掉 2.7 m（约 300 m 宽的缓沙滩），水线推到 zz≈18。
+        if (zz <= 12f) h = 0.9f;                                                  // 滩头靠陆侧
+        else if (zz <= 30f) h = Mathf.Lerp(0.9f, -1.8f, SStep(12f, 30f, zz));     // 宽沙滩：缓坡入水
+        else if (zz <= 44f) h = Mathf.Lerp(-1.8f, -4.6f, SStep(30f, 44f, zz));    // 大陆架
+        else h = Mathf.Lerp(-4.6f, -6.2f, SStep(44f, 60f, zz));                   // 深水盆地
 
         if (zz > 18f)   // 海底起伏：沙洲 + 沟槽
             h += (Fbm(x * 0.08f + 7.1f, z * 0.08f + 2.9f, 3) - 0.5f) * 1.1f * SStep(18f, 26f, zz);

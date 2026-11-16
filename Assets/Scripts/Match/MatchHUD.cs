@@ -46,7 +46,9 @@ public class MatchHUD : MonoBehaviour
 
         EnsureStyles();
 
-        _scale = Mathf.Max(0.35f, Screen.height / VH);
+        // 2026-11-16 下限从 0.35 提到 0.55：窗口拖小的时候 0.35 会把 18px 的字缩到 6px，
+        // 据点名字和标题直接糊成一片（用户截图里只剩"中立"两个字）。
+        _scale = Mathf.Max(0.55f, Screen.height / VH);
         _vw = Screen.width / _scale;
         var oldMatrix = GUI.matrix;
         GUI.matrix = Matrix4x4.Scale(new Vector3(_scale, _scale, 1f));
@@ -1272,19 +1274,17 @@ public class MatchHUD : MonoBehaviour
 
         // 自己的箭头最后画（永远压在光点上面）：**相对开局朝向**旋转的箭头，
         // 开局那一刻 hd = 0 → 箭头朝上；之后左转/右转箭头跟着转，地图不动。
+        // 2026-11-16 用户："船非得后面托两个睾丸吗" → 删掉原来那两片尾翼，
+        // 只留一个干净的水滴箭头 + 中心亮点。
         float hd = Mathf.DeltaAngle(_mapNorthYaw, p.transform.eulerAngles.y) * Mathf.Deg2Rad;
         Vector2 upv = new Vector2(Mathf.Sin(hd), -Mathf.Cos(hd));      // 屏幕坐标（y 向下）
-        Vector2 rtv = new Vector2(-upv.y, upv.x);
         for (int i = 1; i <= 11; i++)
         {
             float f = i / 11f;
             float d = 13f * f;
-            float w = 5.2f * (1f - f * 0.5f);
+            float w = 5.6f * (1f - f * 0.85f);        // 尾粗头尖，收得更干净
             Fill(new Rect(cx + upv.x * d - w * 0.5f, cy + upv.y * d - w * 0.5f, w, w), me);
         }
-        // 尾翼（垂直箭头方向的两小片）
-        Fill(new Rect(cx + rtv.x * 5f - 2f, cy + rtv.y * 5f - 1.5f, 4f, 3f), me);
-        Fill(new Rect(cx - rtv.x * 5f - 2f, cy - rtv.y * 5f - 1.5f, 4f, 3f), me);
         Fill(new Rect(cx - 2f, cy - 2f, 4f, 4f), new Color(1f, 1f, 1f, 0.95f));
 
         Text(new Rect(cx - R, cy + R + 4f, R * 2f, 22f),

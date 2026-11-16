@@ -49,8 +49,12 @@ public class VehiclePhysics : MonoBehaviour
     public float airPitchRate = 80f;
     [Tooltip("最大偏航角速度（度/秒）")]
     public float airYawRate = 40f;
-    [Tooltip("横滚角速度（度/秒）。2026-11-12 从 120 提到 200，桶滚要滚得起来")]
-    public float airRollRate = 200f;
+    [Tooltip("横滚角速度（度/秒）。2026-11-16 用户反馈 200 转太快，回到 110")]
+    public float airRollRate = 110f;
+    [Tooltip("松手小幅回正：倾斜小于这个角度（度）时才自动把机翼摆平。超过就保持，不然做不了桶滚/倒飞")]
+    public float airAutoLevelMaxBank = 40f;
+    [Tooltip("松手小幅回正的速度系数（越大回得越快）")]
+    public float airAutoLevelRate = 3f;
     [Tooltip("靠横滚带出的转弯强度（度/秒，满横滚时）")]
     public float airBankTurnRate = 42f;
     [Tooltip("姿态跟随输入的速度。太小的话模型会明显滞后于飞行方向，看着像横着飘")]
@@ -547,6 +551,23 @@ public class VehiclePhysics : MonoBehaviour
                 rot = rot * Quaternion.AngleAxis(-pitchRate * dt, Vector3.right);   // 机身俯仰（负角 = 抬头）
                 rot = rot * Quaternion.AngleAxis(-rollRate * dt, Vector3.forward);  // 机身滚转（负角 = 右滚）
                 transform.rotation = rot;
+
+                // 2026-11-16 用户要求：**小幅度的 AD 松手之后自己回正**。
+                // 只在 A/D 都松开、且倾斜没超过 airAutoLevelMaxBank 时生效；
+                // 大角度（要桶滚 / 倒飞）保持不动，否则特技就做不出来了。
+                if (Mathf.Abs(Bindings.AxisH) < 0.05f)
+                {
+                    float tilt = Vector3.Angle(transform.up, Vector3.up);
+                    if (tilt > 0.4f && tilt < airAutoLevelMaxBank)
+                    {
+                        Vector3 levelUp = Vector3.ProjectOnPlane(Vector3.up, transform.forward);
+                        if (levelUp.sqrMagnitude > 0.01f)
+                        {
+                            var level = Quaternion.LookRotation(transform.forward, levelUp.normalized);
+                            transform.rotation = Quaternion.Slerp(transform.rotation, level, airAutoLevelRate * dt);
+                        }
+                    }
+                }
             }
         }
 

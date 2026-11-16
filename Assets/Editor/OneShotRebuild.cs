@@ -56,7 +56,9 @@ public static class OneShotRebuild
         PropScatter.Scatter();
 
         Debug.Log("[OneShotRebuild] 4/4 打包 Windows 版");
-        GameBuilder.BuildWindows();
+        // 2026-11-16：改走 BuildCli —— 它读 TANK3D_BUILD_DIR 环境变量（D 盘不足时可以指到 E 盘），
+        // 并且会顺手打印海平面/水域体检。GameBuilder.BuildWindows 的输出目录是硬编码 D:/Builds。
+        BuildCli.BuildWindows();
 
         Debug.Log("[OneShotRebuild] 全部完成");
     }

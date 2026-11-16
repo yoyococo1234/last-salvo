@@ -45,7 +45,8 @@ public static class UiKit
     /// <summary>切到 1080 高的虚拟画布；返回旧矩阵，画完记得还原。</summary>
     public static Matrix4x4 BeginScaled(out float scale, out float vw)
     {
-        scale = Mathf.Max(0.35f, Screen.height / 1080f);
+        // 2026-11-16 下限 0.35 → 0.55：小窗口下 0.35 会让 18px 字缩到 6px，中文糊掉。
+        scale = Mathf.Max(0.55f, Screen.height / 1080f);
         vw = Screen.width / scale;
         var old = GUI.matrix;
         GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
