@@ -4,13 +4,20 @@ using UnityEngine;
 /// <summary>
 /// 机翼挂架上的外挂物（导弹）。打一发少一枚，复活时重新挂满。
 ///
-/// 为什么需要这个：攻击机的导弹原本是**烘在模型网格里**的（单网格单材质），
-/// 没法单独隐藏，所以改成"模型本身不带弹 + 运行时挂 8 个简易弹体"。
+/// ⚠️⚠️⚠️ 2026-11-17 14:45 用户："我说的是空空导弹不是反坦克导弹" + "这一次空空导弹看不见了"
 ///
-/// ⚠️ 为什么在 Start 里建而不是在 VehicleModelBinder 里当场建：
-/// 模型实例化后还要经过 DropToGround 重新定位（localPosition.y = 1.68），
-/// 在 Attach 阶段算世界坐标会少掉这段偏移，弹会掉到机身下面一米多（踩过）。
-/// Start 在所有初始化之后跑，这时模型的最终变换才是确定的。
+/// **战斗机模型和攻击机完全不是一个尺度**（MCP 实测）：
+///   攻击机：网格 bounds **±8.80**（已经是真实米），Model 缩放 **0.60**
+///   战斗机：网格 bounds **±0.04**（厘米级），Model 缩放 **100.00**
+///
+/// 之前所有长度都是写死的米数常数（`bestZ - 0.18`、`+0.25f` 等）。
+/// 在战斗机的微缩空间里，0.18 相当于 **18 米** —— 导弹被甩到 18 米外，
+/// MCP 实测 `up = -18.00`，完全看不见。
+///
+/// ✅ 现在**所有长度都按模型实际世界尺寸的比例算**，不写死任何米数。
+///
+/// 为什么在 Start 里建而不是在 VehicleModelBinder 里当场建：
+/// 模型实例化后还要经过 DropToGround 重新定位，在 Attach 阶段算世界坐标会少掉那段偏移。
 /// </summary>
 public class WingStores : MonoBehaviour
 {
@@ -35,70 +42,110 @@ public class WingStores : MonoBehaviour
         if (!_built && model != null) BuildProps();
     }
 
-    /// <summary>按网格实测的机翼下表面位置挂弹。</summary>
+    /// <summary>按飞机实际尺寸挂弹。</summary>
+    ///
+    /// ⚠️⚠️⚠️ 2026-11-17 15:00 用户："越修越坏" + 截图（导弹整体脱开飘在空中）。
+    ///
+    /// **彻底换思路**：前几版一直在**网格空间**里算坐标，再用 `mf.transform.TransformPoint`
+    /// 转世界。但模型节点的 rotation=(270,90,0)、lossyScale 从 0.6 到 100 不等，
+    /// 任何一处搞错（旋转顺序、缩放、轴向映射）都会让导弹整体飞出去 —— 越改越乱。
+    ///
+    /// ✅ 新做法：**完全在飞机根节点（transform）的局部空间里摆弹**，
+    ///    坐标语义直接用飞机的自身轴：
+    ///       localPos.x = 右（+right）
+    ///       localPos.y = 上（+up）
+    ///       localPos.z = 前（+forward）
+    ///    尺寸只从"飞机世界翼展"取一个标量，再换算成本地单位。
+    ///    **不碰网格顶点、不做 TransformPoint**，从根上消除变换组合出错的可能。
     public void BuildProps()
     {
         _built = true;
         var mf = model.GetComponentInChildren<MeshFilter>();
         if (mf == null || mf.sharedMesh == null) return;
 
-        var mb = mf.sharedMesh.bounds;
-        float halfSpan = mb.extents.x;
-        float midZ = mb.center.z;
         var useMat = mat != null ? mat : MakeMat();
 
-        int idx = 0;
-        // 按「左1 右1 左2 右2…」交替登记，发射时 ConsumeOne 顺序取，
-        // 这样打出去的是左右交替的，不会先把一侧打空（原来 side 在外层，左翼 4 枚打完才轮到右翼）。
-        // 2026-11-12：改成按**实际备弹数**挂（total > 0 时），奇数就只挂一侧 ——
-        // 否则空空导弹只有 1 发、机翼上却挂着 8 枚，看着像无限弹。
+        // ---- 只取一个标量：飞机在世界里的实际翼展（米）----
+        var mb = mf.sharedMesh.bounds;
+        Vector3 lossy = mf.transform.lossyScale;
+        Vector3 worldSize = new Vector3(
+            Mathf.Abs(mb.size.x * lossy.x),
+            Mathf.Abs(mb.size.y * lossy.y),
+            Mathf.Abs(mb.size.z * lossy.z));
+        float spanWorld = Mathf.Max(worldSize.x, Mathf.Max(worldSize.y, worldSize.z));
+        if (spanWorld < 0.01f) spanWorld = 10f;      // 兜底
+
+        // 飞机根节点的世界缩放（把"世界米"换成"根节点本地单位"）
+        Vector3 rootScale = transform.lossyScale;
+        float s = Mathf.Max(0.0001f, Mathf.Max(Mathf.Abs(rootScale.x),
+                            Mathf.Max(Mathf.Abs(rootScale.y), Mathf.Abs(rootScale.z))));
+
+        // 弹体尺寸（世界米 → 根节点本地单位）
+        float missileLenWorld = Mathf.Clamp(spanWorld * 0.062f, 0.6f, 2.2f);
+        float missileDiaWorld = missileLenWorld * 0.145f;
+        float L = missileLenWorld / s;               // 本地单位
+        float D = missileDiaWorld / s;
+
+        // 挂点：翼展比例（相对半翼展），机身下方偏移（本地单位）
+        float halfSpanLocal = (spanWorld * 0.5f) / s;
+        float downOffset = (missileDiaWorld * 1.35f) / s;   // 机翼下表面再往下一点
+
         int count = total > 0 ? total : perSide * 2;
+        int idx = 0;
+
         for (int i = 0; i < count; i++)
         {
             int side = (i % 2 == 0) ? -1 : 1;
             int row = i / 2;
-            float t = 0.34f + row * 0.14f;
-            float mx = side * halfSpan * t;
-            Vector3 wingMesh = WingUnderside(mf, mx, midZ);
+
+            Vector3 localPos;
+            if (count == 1)
+            {
+                // 单发：机腹中线（用户 2026-11-17 明确要求"空空导弹放机腹中线"）
+                localPos = new Vector3(0f, -downOffset, 0f);
+            }
+            else
+            {
+                // 多发：机翼下，左右交替，从内到外铺开
+                int perSideCount = Mathf.Max(1, Mathf.CeilToInt(count / 2f));
+                float t = perSideCount <= 1
+                    ? 0.62f
+                    : Mathf.Lerp(0.42f, 0.82f, row / (float)(perSideCount - 1));
+                localPos = new Vector3(side * halfSpanLocal * t, -downOffset, 0f);
+            }
 
             var m = new GameObject($"Missile_{idx}");
             m.transform.SetParent(transform, false);
-            // 模型此刻的变换已经是最终值，直接换算成世界坐标挂上去
-            m.transform.position = mf.transform.TransformPoint(wingMesh);
+            // 局部坐标直接用飞机的自身轴（x=右 y=上 z=前），identity 旋转
+            m.transform.localPosition = localPos;
             m.transform.localRotation = Quaternion.identity;
 
-            Part(m.transform, PrimitiveType.Cylinder, new Vector3(0.16f, 0.55f, 0.16f),
-                 new Vector3(0f, 0f, 0.55f), new Vector3(90f, 0f, 0f), useMat);
-            Part(m.transform, PrimitiveType.Sphere, new Vector3(0.16f, 0.22f, 0.16f),
-                 new Vector3(0f, 0f, 1.12f), Vector3.zero, useMat);
-            Part(m.transform, PrimitiveType.Cube, new Vector3(0.42f, 0.02f, 0.20f),
-                 new Vector3(0f, 0f, 0.10f), Vector3.zero, useMat);
-            Part(m.transform, PrimitiveType.Cube, new Vector3(0.02f, 0.38f, 0.20f),
-                 new Vector3(0f, 0f, 0.10f), Vector3.zero, useMat);
-            Part(m.transform, PrimitiveType.Cube, new Vector3(0.08f, 0.30f, 0.40f),
-                 new Vector3(0f, 0.30f, 0.40f), Vector3.zero, useMat);
+            // 弹体：沿本地 +Z（= 飞机前方）
+            Part(m.transform, PrimitiveType.Cylinder, new Vector3(D, L * 0.5f, D),
+                 new Vector3(0f, 0f, L * 0.5f), new Vector3(90f, 0f, 0f), useMat);
+            // 弹头
+            Part(m.transform, PrimitiveType.Sphere, new Vector3(D, D * 1.35f, D),
+                 new Vector3(0f, 0f, L * 1.02f), Vector3.zero, useMat);
+            // 尾翼（十字）
+            Part(m.transform, PrimitiveType.Cube, new Vector3(L * 0.38f, L * 0.018f, L * 0.18f),
+                 new Vector3(0f, 0f, L * 0.09f), Vector3.zero, useMat);
+            Part(m.transform, PrimitiveType.Cube, new Vector3(L * 0.018f, L * 0.35f, L * 0.18f),
+                 new Vector3(0f, 0f, L * 0.09f), Vector3.zero, useMat);
+            // 挂架（从弹体往上连到机翼/机身）
+            Part(m.transform, PrimitiveType.Cube, new Vector3(L * 0.07f, L * 0.30f, L * 0.36f),
+                 new Vector3(0f, L * 0.28f, L * 0.36f), Vector3.zero, useMat);
 
             all.Add(m);
             idx++;
         }
     }
 
-    /// <summary>网格坐标里某翼展位置的机翼下表面（X=翼展、Y=前后、Z=高度）。</summary>
-    static Vector3 WingUnderside(MeshFilter mf, float localX, float midZ)
-    {
-        float x = Mathf.Abs(localX);
-        float bestZ = float.MaxValue, bestY = 0f;
-        bool any = false;
-        foreach (var v in mf.sharedMesh.vertices)
-        {
-            if (Mathf.Abs(Mathf.Abs(v.x) - x) > 0.45f) continue;
-            if (Mathf.Abs(v.y) > 1.4f) continue;      // 只取机翼弦长范围
-            if (v.z < -1.6f) continue;                // 起落架/吊舱
-            if (v.z < bestZ) { bestZ = v.z; bestY = v.y; any = true; }
-        }
-        if (!any) return new Vector3(localX, 0f, midZ);
-        return new Vector3(Mathf.Sign(localX) * x, bestY, bestZ - 0.16f);
-    }
+    // 【已删除】旧的 WingUnderside（网格空间求机翼下表面）。
+    //
+    // 2026-11-17 15:00 彻底弃用：它把"网格顶点坐标"当挂点，再经 mf.transform.TransformPoint
+    // 转世界。模型节点 rotation=(270,90,0)、lossyScale 0.6~100 不等，
+    // 任何一处搞错都让导弹整体飞出去（用户截图："越修越坏"、"怎么都脱离了"）。
+    // 现在改为**直接在飞机根节点局部空间摆弹**（x=右 y=上 z=前），不碰网格顶点。
 
     static GameObject Part(Transform parent, PrimitiveType type, Vector3 scale, Vector3 pos, Vector3 euler, Material mat)
     {

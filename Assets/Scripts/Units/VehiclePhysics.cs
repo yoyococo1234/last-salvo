@@ -55,6 +55,9 @@ public class VehiclePhysics : MonoBehaviour
     public float airAutoLevelMaxBank = 40f;
     [Tooltip("松手小幅回正的速度系数（越大回得越快）")]
     public float airAutoLevelRate = 3f;
+    [Tooltip("按住 F 一键改平的收敛率（每秒）。2026-11-17 用户反馈「F 键回正太快了」。" +
+             "从 6 降到 2.2：平掉 90° 滚转约 1.4 秒，能看出过程而不是啪一下")]
+    public float airLevelFlightRate = 2.2f;
     [Tooltip("靠横滚带出的转弯强度（度/秒，满横滚时）")]
     public float airBankTurnRate = 42f;
     [Tooltip("姿态跟随输入的速度。太小的话模型会明显滞后于飞行方向，看着像横着飘")]
@@ -526,7 +529,20 @@ public class VehiclePhysics : MonoBehaviour
             airThrottle = Mathf.Clamp01(airThrottle + Bindings.AxisV * airThrottleRate * dt);
 
             // 按住 C 环视时，鼠标只转镜头 —— 不要再把飞机拐走（不然一边看一边侧翻）
-            if (!CameraFollow.FreeLookActive)
+            //
+            // ⚠️⚠️ 2026-11-17 12:20 用户："飞机按 C 键去观看的时候不是俯冲就是抬升，和最初设计不符"。
+            //
+            // 真因：原来只把"鼠标输入累积"这一段放进了 `if (!FreeLookActive)`，
+            // 但**回中**（下面两行 MoveTowards）和**姿态积分**（pitchRate/yawRate/rollRate）
+            // 都还在跑。于是按 C 的瞬间，_airAimX/_airAimY 里残留的值继续往 0 回中，
+            // 回中又被换算成俯仰/偏航角速度 → **飞机自己抬头或低头**。
+            // 加上 `Bindings.AxisH` 的滚转和下面的自动回正也都没判 FreeLook，
+            // 环视时飞机会慢慢滚 + 自己改平，看起来就是"俯冲/抬升"。
+            //
+            // 修法：自由视角时**整段姿态控制全部跳过**，只保留油门和位移。
+            // 相机在 OrbitAroundTarget 里绕飞机转，飞机保持当前姿态直线飞。
+            bool freeLookNow = CameraFollow.FreeLookActive;
+            if (!freeLookNow)
             {
                 _airAimX = Mathf.Clamp(_airAimX + Input.GetAxis("Mouse X") * airMouseSensitivity, -1f, 1f);
                 _airAimY = Mathf.Clamp(_airAimY + Input.GetAxis("Mouse Y") * airMouseSensitivity, -1f, 1f);
@@ -534,15 +550,29 @@ public class VehiclePhysics : MonoBehaviour
             _airAimX = Mathf.MoveTowards(_airAimX, 0f, airRecenterSpeed * dt);
             _airAimY = Mathf.MoveTowards(_airAimY, 0f, airRecenterSpeed * dt);
 
-            if (Bindings.Held(Bindings.Act.LevelFlight))
+            if (freeLookNow)
+            {
+                // 环视中：姿态完全冻结（不改俯仰/偏航/滚转，也不自动改平）
+                // 什么都不做 —— 下面的 else 分支整段跳过。
+            }
+            else if (Bindings.Held(Bindings.Act.LevelFlight))
             {
                 // 一键改平：机翼水平 + 机头压回水平（保留当前航向）。倒飞 / 螺旋里按住救命。
+                //
+                // ⚠️ 2026-11-17 12:45 用户："F 键回正太快了"。
+                // 原来是 `Quaternion.Slerp(rot, want, 6f * dt)`：
+                //   ① 6 这个系数偏大，几乎两三个机身宽度就"啪"地平掉了；
+                //   ② `6f * dt` 不是帧率无关写法 —— 60fps 下每帧 0.1、30fps 下 0.2，
+                //      低帧率时明显更快，手感不一致。
+                // 改成指数收敛（1 - e^(-rate·dt)），帧率无关；rate 从 6 降到 2.2，
+                // 平掉一段 90° 的滚转约 1.4 秒，看得出"慢慢改平"的过程。
                 Vector3 fwd = transform.forward;
                 Vector3 flat = new Vector3(fwd.x, 0f, fwd.z);
                 if (flat.sqrMagnitude > 0.04f)   // 垂直上下飞时没有水平投影，跳过
                 {
                     var want = Quaternion.LookRotation(flat.normalized, Vector3.up);
-                    transform.rotation = Quaternion.Slerp(transform.rotation, want, 6f * dt);
+                    float k = 1f - Mathf.Exp(-airLevelFlightRate * dt);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, want, k);
                 }
             }
             else

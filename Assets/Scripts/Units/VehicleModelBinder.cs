@@ -578,29 +578,17 @@ public static class VehicleModelBinder
     /// 现在给两根可见的发射管，鱼雷从管口出去（`VehicleCombat.FireTorpedo` 读这里的管口）。
     /// </summary>
     /// <summary>
-    /// 在模型网格里量某个翼展位置的**机翼下表面**，返回模型局部坐标。
-    /// Lux3D 的 FBX 轴向：X=翼展、Y=前后（-Y 是机头）、Z=高度（Z-up）。
-    /// 起落架/挂架会挂在更低的位置，所以低于 -1.6 的顶点直接忽略。
+    /// 【已删除】旧版 WingUnderside —— 死代码，从未被调用。
+    ///
+    /// 真正的挂弹位置计算在 `WingStores.WingUnderside`（那边是活的，由 WingStores.BuildProps 调用）。
+    /// 这里原来有一份重复实现，2026-11-17 排查"空空导弹看不见"时一度改错地方
+    /// （改这份没用，因为根本没人调它）。删掉，避免下次再踩。
+    ///
+    /// 另外记录那个 bug 的根因（在 WingStores 里已修）：
+    ///   战斗机网格 bounds 只有 ±0.04（厘米级）、Model 缩放 100；
+    ///   攻击机网格 bounds ±8.80（真实米）、Model 缩放 0.60。
+    ///   任何写死的米数常数（如 -0.18f）在战斗机身上会被放大 100 倍 → 弹被甩到十几米外。
     /// </summary>
-    static Vector3 WingUnderside(Transform model, float localX, float localZCenter)
-    {
-        var mf = model.GetComponentInChildren<MeshFilter>();
-        if (mf == null || mf.sharedMesh == null || !mf.sharedMesh.isReadable)
-            return new Vector3(localX, localZCenter, -1.0f);
-
-        float x = Mathf.Abs(localX);
-        float bestZ = float.MaxValue, bestY = 0f;
-        bool any = false;
-        foreach (var v in mf.sharedMesh.vertices)
-        {
-            if (Mathf.Abs(Mathf.Abs(v.x) - x) > 0.45f) continue;
-            if (Mathf.Abs(v.y) > 1.4f) continue;      // 只取机翼弦长范围
-            if (v.z < -1.6f) continue;                // 起落架/吊舱
-            if (v.z < bestZ) { bestZ = v.z; bestY = v.y; any = true; }
-        }
-        if (!any) return new Vector3(localX, localZCenter, -1.0f);
-        return new Vector3(Mathf.Sign(localX) * x, bestY, bestZ - 0.18f);   // 再往下 18 cm 挂弹
-    }
 
     /// <summary>这把武器有没有备弹上限（= 机翼上要不要挂实弹）。</summary>
     static bool HasLimitedAmmoWeapon(VehicleDef def)

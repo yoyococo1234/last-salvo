@@ -64,6 +64,9 @@ public class CameraFollow : MonoBehaviour
     public float airMaxDistance = 44f;
     [Tooltip("镜头跟随飞机滚转的比例：1 = 完全跟随（压杆时地平线跟着斜），0 = 永远水平")]
     [Range(0f, 1f)] public float airRollFollow = 0.85f;
+    [Tooltip("镜头滚转的平滑速度（每秒收敛率）。越大越跟手、越小越柔和。" +
+             "2026-11-17 用户反馈「视角依然不平滑」—— 这个值就是那个柔度")]
+    public float airRollSmooth = 4f;
 
     [Header("飞机开镜（按住 Shift）")]
     [Tooltip("开镜后收窄到的视野角")]
@@ -147,6 +150,21 @@ public class CameraFollow : MonoBehaviour
     float _mouseX, _mouseY;    // 平滑后的鼠标输入
     bool _scoped;
     bool _rightZoom;
+
+    // 飞机滚转跟随的**持久累积角**（2026-11-17）。
+    // 必须跨帧累积：SignedAngle 是 -180~180 的瞬时量，滚过 180° 会从 +170 跳到 -170；
+    // 用 LerpAngle 走最短路径累积到一个连续值上，镜头才不会跳。
+    float _camRollFollow;
+
+    /// <summary>
+    /// 上一帧的「飞机 up 在视线垂直面上的投影」。
+    /// **增量累积的关键**：每帧只算它到当前帧的小角度增量，绕开 180° 处 SignedAngle 的符号歧义。
+    /// Vector3.zero 表示还没建立基准（换载具 / 参考退化后重建）。
+    /// </summary>
+    Vector3 _prevPlaneUpProj;
+
+    /// <summary>验收用：打印滚转跟随的内部量（正常游戏关）。</summary>
+    public bool DebugRollDiag = false;
     bool _wasFreeLook;
     Transform _lastTarget;
 
@@ -275,6 +293,9 @@ public class CameraFollow : MonoBehaviour
             FitDistanceToTarget();
             _pivotInit = false;      // 换车时重置平滑基准，别从上一台车的位置滑过去
             _mouseX = _mouseY = 0f;
+            // 换载具：滚转跟随的基准必须重建（旧基准是上一台飞机的 up 投影）
+            _camRollFollow = 0f;
+            _prevPlaneUpProj = Vector3.zero;
         }
 
         // 开飞机时是追尾视角：鼠标用来操控飞机，不能同时转镜头。
@@ -524,7 +545,26 @@ public class CameraFollow : MonoBehaviour
             // 现在**恢复 11-12 验证过的方案**（机位+视线成对使用，不能只改一半）。
             Vector3 muzzlePosS = vp != null ? vp.GetMuzzlePosition() : target.position + Vector3.up * 2f;
             Vector3 barrelPt = muzzlePosS + lookDirS * 1500f;
-            if (Physics.Raycast(muzzlePosS + lookDirS * 5f, lookDirS, out var hitS, 3000f,
+
+            // ⚠️⚠️ 2026-11-17 12:40 用户："坦克检查有没有瞄不准的情况" —— 查到了。
+            //
+            // 真因：射线命中了**中途的建筑**（MCP 实测：命中 waste_shack，距离 132 m），
+            // 于是 barrelPt 落在那个建筑上，相机就看向 132 m 处的棚屋。
+            // 而目标在 400 m 外 —— 炮管轴线 400 m 处高 12.26 m，目标在 21.38 m，差 9 m。
+            // 结果：镜心稳定偏 133 px / 149 px（不是抖动，是稳定地偏）。
+            //
+            // 这个"沿炮管找命中点"的补偿本来是为**打建筑**设计的（弹着点就是建筑表面）。
+            // 但**锁定载具时不该被中途建筑干扰** —— 锁定的意义就是瞄那台车。
+            //
+            // 修法：锁定目标时，barrelPt 直接取**炮管轴线在目标距离处**的点（不射线）；
+            // 没锁定（自由瞄准）时才用射线找真实弹着点。
+            var lk = LockOnSystem.Active ? LockOnSystem.Target : null;
+            if (lk != null && lk.Alive)
+            {
+                float dToTarget = Vector3.Distance(muzzlePosS, LockOnSystem.AimAnchor(lk));
+                barrelPt = muzzlePosS + lookDirS * Mathf.Max(40f, dToTarget);
+            }
+            else if (Physics.Raycast(muzzlePosS + lookDirS * 5f, lookDirS, out var hitS, 3000f,
                                 ~0, QueryTriggerInteraction.Ignore)
                 && Vector3.Distance(muzzlePosS, hitS.point) > 40f)
                 barrelPt = hitS.point;
@@ -820,8 +860,118 @@ public class CameraFollow : MonoBehaviour
         Vector3 lookDir = target.rotation * (Quaternion.AngleAxis(lookDown, Vector3.right) * Vector3.forward);
 
         // ---- 滚转跟随：airRollFollow = 1 完全跟随（地平线随滚转倾斜），0 = 永远水平 ----
-        Vector3 camUp = Vector3.Slerp(Vector3.up, upPlane, Mathf.Clamp01(airRollFollow));
-        if (camUp.sqrMagnitude < 0.0001f) camUp = Vector3.up;
+        //
+        // ⚠️⚠️ 2026-11-17 12:20 用户："飞机旋转到 180 度的时候视角有一个突然的旋转"。
+        // 第一版修法：把 `Vector3.Slerp(up, planeUp, t)` 换成 `SignedAngle × t` 再转回去。
+        //   —— Slerp 在两个反向向量（夹角 180°）处退化，这个原因找对了。
+        //
+        // ⚠️ 2026-11-17 12:45 用户："视角依然不平滑"。第一版修法**只解决了一半**：
+        //   ① `Vector3.SignedAngle` 返回 **-180~180**，飞机滚过 180° 时
+        //      signedRoll 从 +170 直接跳到 -170 —— 换了地方跳，还是不平滑；
+        //   ② camUp 是**直接赋值**，完全没有平滑，飞机滚转的每一丝抖动都原样传给镜头。
+        //
+        // 最终修法：维护一个**持久累积**的滚转角 `_camRollFollow`，用 `Mathf.LerpAngle` 逼近。
+        //   · LerpAngle 走**最短路径**，170° → 190°（SignedAngle 给 -170）只走 20°，不绕远路；
+        //   · 持久累积 + 平滑 = 连续，任何角度都不跳；
+        //   · 平滑系数用指数形式，帧率无关。
+        //
+        // ⚠️⚠️ 2026-11-17 13:20 用户发录屏："我只是在 180 度附近轻轻按了一下 AD 键，就剧烈晃动"。
+        // 上一版还有**两个致命错误**（都只在"机头接近竖直"时暴露，所以之前测不出来）：
+        //
+        //   ① `ProjectOnPlane(Vector3.up, 机头)` 的模长 = **cos(俯仰角)**。
+        //      大角度俯冲（70~80°）时模长只剩 0.17~0.34 —— 归一化后，任何一点滚转
+        //      都被放大约 **3~6 倍**。轻按 AD 就剧烈晃，就是这个放大。
+        //      原来的阈值 `0.0001` 对应夹角 89.99°，形同虚设，几乎从不触发兜底。
+        //
+        //   ② **camUp 绕错了轴**。`camUp` 是绕 `rollAxis = target.forward` 转出来的，
+        //      但 `LookRotation(lookDir, camUp)` 要求 camUp **垂直于 lookDir**；
+        //      而 lookDir 是"机头再压 lookDown 度"，与 target.forward 不平行。
+        //      两者夹角越大，LookRotation 内部强行正交化产生的扭曲越大 → 画面抖。
+        //
+        // 修法：
+        //   · 阈值按**真实模长**判（0.25 ≈ 夹角 75.5°），超过就把滚转跟随权重降到 0；
+        //   · camUp 改成绕 **lookDir 本身**转，保证它与视线永远正交。
+        //
+        // ⚠️⚠️⚠️ 2026-11-17 14:05 用户："170°到190°和40°到50°有什么区别，为什么这么难修"。
+        //
+        // 这个问题问到了根子上。**物理上没区别（都是连续滚 10°），数学上有本质区别**：
+        //
+        //   `Vector3.SignedAngle(from, to, axis)` 内部是
+        //       angle = Angle(from,to)                      // 无符号，0~180
+        //       sign  = Sign(Dot(axis, Cross(from, to)))
+        //   而 `|Cross(from,to)| = sin(夹角)`：
+        //       滚 45°  → Cross 模长 0.71，符号稳定
+        //       滚 179° → Cross 模长 0.017，符号勉强
+        //       滚 180° → Cross 模长 **0.00000**，符号由浮点噪声决定
+        //
+        //   MCP 实测（from=up, axis=forward）：
+        //       170°  → SignedAngle = 170.00
+        //       179.9°→ 179.90
+        //       180°  → **-180.00**   ← 符号翻转
+        //       180.1°→ **-179.90**   ← 跳到负区
+        //       190°  → -170.00
+        //
+        //   **我前三次修法（Slerp / SignedAngle / LerpAngle）全都走"每帧从绝对方向反推角度"
+        //   这条死路** —— 只要从绝对方向反推，180° 处必然歧义，换哪种插值都没用。
+        //
+        // ✅ 真正的解法：**不反推绝对角度，改用增量累积**。
+        //   每帧只算"这一帧飞机相对上一帧滚了多少度"（小角度增量，Cross 模长永远足够大，
+        //   不存在歧义），把增量累加到一个持久角上。这样滚到 180°、540°、任何角度都连续。
+        Vector3 camUp;
+        {
+            // 滚转参考必须相对**视线**（lookDir），不是相对机头 —— 见上面 ②
+            Vector3 rollAxis = lookDir.normalized;
+
+            Vector3 upProj = Vector3.ProjectOnPlane(Vector3.up, rollAxis);
+            Vector3 planeUpProj = Vector3.ProjectOnPlane(upPlane, rollAxis);
+
+            // 模长 = cos(机头与 up 的夹角)。机头越接近竖直，参考越不可靠。
+            float stability = Mathf.Clamp01(upProj.magnitude / 0.45f);   // 0.45 ≈ 63° 开始降权
+            stability *= Mathf.Clamp01(planeUpProj.magnitude / 0.45f);
+
+            if (stability < 0.02f)
+            {
+                // 机头几乎竖直：滚转参考退化。缓慢回 0（不要把噪声放大）。
+                _camRollFollow = Mathf.LerpAngle(_camRollFollow, 0f, 1f - Mathf.Exp(-2f * dt));
+                _prevPlaneUpProj = Vector3.zero;      // 参考断了，下一帧重新建立基准
+            }
+            else
+            {
+                upProj.Normalize();
+                planeUpProj.Normalize();
+
+                // ---- 增量累积（关键）----
+                // 第一帧 / 参考刚重建：建立基准，本帧不累加
+                if (_prevPlaneUpProj == Vector3.zero)
+                {
+                    _prevPlaneUpProj = planeUpProj;
+                }
+                else
+                {
+                    // 这一帧飞机相对上一帧滚了多少度（**小角度**，Cross 模长足够，无歧义）
+                    float deltaRoll = Vector3.SignedAngle(_prevPlaneUpProj, planeUpProj, rollAxis);
+                    _prevPlaneUpProj = planeUpProj;
+
+                    // 增量 × 跟随比例，累加到持久角上。
+                    // 用 Clamp 防单帧跳变（比如换载具/瞬移时增量会很大）。
+                    float step = Mathf.Clamp(deltaRoll, -30f, 30f) * Mathf.Clamp01(airRollFollow) * stability;
+                    _camRollFollow = Mathf.Repeat(_camRollFollow + step + 180f, 360f) - 180f;
+                }
+
+                if (DebugRollDiag)
+                {
+                    Debug.Log($"[RollDiag] stability={stability:F3} follow={_camRollFollow:F2} " +
+                              $"upProjMag={upProj.magnitude:F4} dt={dt:F4}");
+                }
+            }
+
+            // 始终绕 lookDir 转，保证与视线正交（LookRotation 不会强行正交化）
+            camUp = Quaternion.AngleAxis(_camRollFollow, rollAxis) * upProj;
+            if (camUp.sqrMagnitude < 0.0001f) camUp = Vector3.up;
+            camUp = Vector3.ProjectOnPlane(camUp, rollAxis);   // 双保险：抹掉数值误差
+            if (camUp.sqrMagnitude < 0.0001f) camUp = Vector3.up;
+            camUp.Normalize();
+        }
 
         var wantRot = Quaternion.LookRotation(lookDir, camUp);
         transform.rotation = Quaternion.Slerp(transform.rotation, wantRot, 10f * dt);

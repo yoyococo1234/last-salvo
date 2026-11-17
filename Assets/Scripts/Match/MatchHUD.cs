@@ -830,8 +830,26 @@ public class MatchHUD : MonoBehaviour
             _wantRestart = true;      // 不在 OnGUI 里 LoadScene：等下一帧 Update 再重启
         }
 
+        // ⚠️ 2026-11-17 13:00 用户："点击也没有用"。
+        //
+        // 上面那套 `Event.current.type == MouseUp` 的判定**依赖 GUI 事件流**：
+        // OnGUI 一帧跑多遍（Layout/Repaint/各个组件的 Use()），
+        // 只要前面任何一个 HUD 元素把 MouseUp 吃掉，这里就永远收不到 —— 按钮点了没反应。
+        //
+        // 兜底：直接用 Input.GetMouseButtonUp(0)（绕过 GUI 事件系统，不依赖谁 Use 了事件）。
+        // 位置判定仍用上面算好的 over（已还原 pop 缩放），所以不会误触。
+        // 用 _btnWasDown 防止同一次按下触发两遍（Event 和 Input 两条路都命中的情况）。
+        if (over && Input.GetMouseButtonUp(0) && !_btnConsumed)
+        {
+            _btnConsumed = true;
+            _wantRestart = true;
+        }
+        if (!Input.GetMouseButton(0)) _btnConsumed = false;
+
         GUI.matrix = oldM;
     }
+
+    static bool _btnConsumed;      // 结算按钮：同一次点击只触发一次
 
     // ================= 受击方向指示（2026-11-11） =================
     //
@@ -1131,6 +1149,18 @@ public class MatchHUD : MonoBehaviour
             _wantRestart = false;
             var m0 = MatchManager.Instance;
             if (m0 != null) m0.Restart();
+        }
+
+        // ⚠️⚠️ 2026-11-17 13:00 用户："这个界面无论是按 R 还是点击都没有用"。
+        //
+        // 真因（R 键）：**代码里根本没有监听 R 键**。
+        // 11-12 那条"删 R 键改为暂停面板重开"删掉的是 Bindings.Act.Restart 枚举，
+        // 但结算面板的按钮文字一直写着"再来一局（R）"—— 文字在，功能没了。
+        // 这里补回：只在结算面板显示期间（matchOver）响应，且用 GetKeyDown 防止长按连跳。
+        var mmR = MatchManager.Instance;
+        if (mmR != null && mmR.matchOver && Input.GetKeyDown(KeyCode.R))
+        {
+            _wantRestart = true;
         }
 
         // 2026-11-10：受伤/金币的差值必须每帧算一次，所以在下面那个 0.15 s 的提前 return 之前
