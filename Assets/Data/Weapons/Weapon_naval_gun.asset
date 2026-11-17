@@ -22,4 +22,11 @@ MonoBehaviour:
   - {fileID: 11400000, guid: d3393b2f8fe215541ae86468dd6731d4, type: 2}
   - {fileID: 11400000, guid: 8ec15d407009f244592e1f152ea927ad, type: 2}
   - {fileID: 11400000, guid: 27d1975081f4e974d920437d2f2f6365, type: 2}
+  ammoCapacity: 0
   mountedDomain: 1
+  deckMounted: 0
+  deckMaxElevation: 85
+  deckMaxDepression: -12
+  deckPitchSpeed: 140
+  isTorpedo: 0
+  torpedoDepth: 1.6

@@ -40,7 +40,9 @@ public class Decoy : MonoBehaviour
     public static Decoy Deploy(Vector3 pos, float waterLevel, float radius = 6f, float life = 12f, int team = -1)
     {
         var go = new GameObject("Intercept");
-        go.transform.position = new Vector3(pos.x, waterLevel - 1.0f, pos.z);
+        // 2026-11-16 用户："干扰弹高出海平面了，能不能和海平面一样高"。
+        // 直接贴水面放（-0.05 只是为了避开水面 Z-fighting），不再沉到水下 1 m。
+        go.transform.position = new Vector3(pos.x, waterLevel - 0.05f, pos.z);
 
         var d = go.AddComponent<Decoy>();
         d.radius = radius;
@@ -55,11 +57,14 @@ public class Decoy : MonoBehaviour
 
     void Build()
     {
-        // 弹体：小胶囊，橙红色，水下也能看见
+        // 弹体：小胶囊，橙红色，贴着水面滑行
+        // 2026-11-16：原来 scale.y = 1.2（Capsule 原生高 2 m → 实际 2.4 m），
+        // 中心在水面下 0.5 m 时顶端会露出水面 0.7 m，看着像浮在空中。
+        // 现在压到 0.45（实际高 0.9 m，半高 0.45），配合贴水面的 y 夹取，视觉上就是浮在水面。
         var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
         body.name = "Body";
         body.transform.SetParent(transform, false);
-        body.transform.localScale = new Vector3(0.5f, 1.2f, 0.5f);
+        body.transform.localScale = new Vector3(0.5f, 0.45f, 0.5f);
         body.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
         var col = body.GetComponent<Collider>();
         if (col != null) { col.enabled = false; Destroy(col); }
@@ -118,9 +123,11 @@ public class Decoy : MonoBehaviour
 
         transform.position += _dir * speed * dt;
         transform.rotation = Quaternion.LookRotation(_dir);
-        // 贴着水下游，不要飞出水面上天
+        // 贴着水面走，不要飞出水面上天（2026-11-16 改成**贴着海平面**：
+        // 原来夹在 waterLevel-3.5 ~ waterLevel-0.5，胶囊半高 1.2 m，顶端会露出水面 0.7 m，
+        // 看着像"浮在海面上方"。现在夹在 ±0.25 内，视觉上就是贴着水面滑行。）
         var p = transform.position;
-        p.y = Mathf.Clamp(p.y, _waterLevel - 3.5f, _waterLevel - 0.5f);
+        p.y = Mathf.Clamp(p.y, _waterLevel - 0.25f, _waterLevel - 0.05f);
         transform.position = p;
 
         // 拖尾

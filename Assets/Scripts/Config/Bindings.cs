@@ -18,8 +18,10 @@ public static class Bindings
     {
         Forward, Back, Left, Right,
         Fire, Scope, FreeLook, SwitchWeapon, MgMode,
-        LockOn, Shop, Pause, Garage, Restart, Decoy,
+        LockOn, Shop, Pause, Garage, Decoy,
         LevelFlight,
+        // 注意：2026-11-12 已删掉 Restart（重开一局）—— 改成按 P 暂停后在面板里选"是否重新开始"。
+        // PlayerPrefs 的键名是 "Tank3D.Key." + 枚举名，不依赖枚举整数值，所以删掉是安全的。
     }
 
     public struct Entry

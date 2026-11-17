@@ -153,8 +153,11 @@ public class VehicleAI : MonoBehaviour
             if (Vector3.Angle(tf, d) > 45f) continue;               // 不是冲我来的
 
             // 技能映射：0.3 → 18%，1.0 → 85%
+            // ⚠️ 这里必须用 continue 而不是 return（2026-11-16 修）：
+            // 原来掷骰失败就 return，等于"只看最近那一枚鱼雷，没反应过来就整帧放弃"，
+            // 场上有多枚鱼雷朝我飞来时，后面几枚永远不会被检查到，实际反应率远低于标称值。
             float p = Mathf.Lerp(0.18f, 0.85f, Skill01);
-            if (Random.value > p) return;                           // 这次没反应过来
+            if (Random.value > p) continue;                         // 这一枚没反应过来，看下一枚
 
             _decoyLeft--;
             _nextDecoyAt = Time.time + decoyCooldown;

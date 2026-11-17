@@ -20,6 +20,7 @@ MonoBehaviour:
   projectileSpeed: 900
   ammoTypes:
   - {fileID: 11400000, guid: 98e9e05ac5fd47849c0c9d14e3ec3de2, type: 2}
+  ammoCapacity: 0
   mountedDomain: 0
   deckMounted: 1
   deckMaxElevation: 85

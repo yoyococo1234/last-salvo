@@ -40,7 +40,6 @@ public class Torpedo : MonoBehaviour
     float _t;
     float _startY;
     float _foamTimer;
-    float _lastTime = -1f;
 
     AmmoDef _ammo;
     VehicleCombat _owner;

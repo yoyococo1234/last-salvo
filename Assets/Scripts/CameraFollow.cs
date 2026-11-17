@@ -45,6 +45,9 @@ public class CameraFollow : MonoBehaviour
     public float scopeSpeed = 12f;
     [Tooltip("开镜时的鼠标灵敏度倍率")]
     public float zoomSensitivity = 0.3f;
+    [Tooltip("炮镜机位沿炮管【前方】偏移多少米。炮口在车头/船头最前端，往前就是车外空气 —— " +
+             "既不钻进车体网格（会满屏糊住），又保持与炮管同轴（零视差）")]
+    public float ScopeForwardOffset = 1.5f;
 
     [Header("飞机追尾机位（抬高机位 + 视线压向地面，不开镜也能对地瞄准）")]
     [Tooltip("跟机距离 = 按机身体积算出的距离 × 该值")]
@@ -238,6 +241,7 @@ public class CameraFollow : MonoBehaviour
     {
         _mgScoped = false;
         SyncMgVisibility();                              // 退出时务必把模型还回来
+        RestoreSelfRenderers();                          // 炮镜隐藏的模型也要还回来
     }
 
     void LateUpdate()
@@ -255,6 +259,7 @@ public class CameraFollow : MonoBehaviour
             _airScoped = false;
             _mgScoped = false;
             _rightZoom = false;
+            RestoreSelfRenderers();      // 死了也要把炮镜隐藏的模型还回来（不然复活后看不见自己）
         }
 
         SyncMgVisibility();     // 机枪模型显隐跟着开镜状态走（上一帧的状态就够）
@@ -451,13 +456,24 @@ public class CameraFollow : MonoBehaviour
             if (vp != null && vp.turretBone != null) turretPivot = vp.turretBone.position;
 
             // 机位高度按**炮塔实际包围盒顶**算（重装坦克炮塔又高又大，写死高度会被挡死）
+            //
+            // ⚠️⚠️ 2026-11-17 12:00 用户："有时候还是会出去" —— 查到这是**自反馈死循环**：
+            //   第 N 帧：炮塔渲染器开着 → 算出正确的 turretTopY / turretSpan → 相机就位
+            //          → 然后开镜隐藏炮塔渲染器（SetTurretRenderersVisible）
+            //   第 N+1 帧：炮塔渲染器全关 → 下面 `if (!r.enabled) continue` 全跳过 → any=false
+            //          → turretTopY 退回 turretPivot.y+1f、turretSpan 退回 2
+            //          → 机位高度和后退距离全变 → **相机跳一下** → 准星飞出船外
+            //
+            // 修法：算包围盒**不看 enabled**。Renderer.bounds 在 enabled=false 时依然有效，
+            // 机位几何必须只由"炮塔有多大"决定，不能由"这一帧渲染器开没开"决定。
             float turretTopY = turretPivot.y + 1f;
             if (vp != null && vp.turretBone != null)
             {
                 bool any = false;
-                foreach (var r in vp.turretBone.GetComponentsInChildren<Renderer>())
+                foreach (var r in vp.turretBone.GetComponentsInChildren<Renderer>(true))
                 {
-                    if (!r.enabled) continue;
+                    if (r == null) continue;
+                    if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
                     if (!any || r.bounds.max.y > turretTopY) { turretTopY = r.bounds.max.y; any = true; }
                 }
             }
@@ -466,14 +482,16 @@ public class CameraFollow : MonoBehaviour
             back = back.sqrMagnitude > 0.0001f ? back.normalized : target.forward;
 
             // 后退距离按炮塔实际尺寸走：小船/坦克 1.5~2 m 刚好，18 m 的炮艇退 1.5 m 会贴到枪口上。
+            // 同上：**不看 enabled**，否则开镜隐藏炮塔后 turretSpan 会退回 2，机位又跳。
             float turretSpan = 2f;
             if (vp != null && vp.turretBone != null)
             {
                 bool anyR = false;
                 Bounds tb = new Bounds(vp.turretBone.position, Vector3.zero);
-                foreach (var r in vp.turretBone.GetComponentsInChildren<Renderer>())
+                foreach (var r in vp.turretBone.GetComponentsInChildren<Renderer>(true))
                 {
-                    if (!r.enabled) continue;
+                    if (r == null) continue;
+                    if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
                     if (!anyR) { tb = r.bounds; anyR = true; }
                     else tb.Encapsulate(r.bounds);
                 }
@@ -495,15 +513,23 @@ public class CameraFollow : MonoBehaviour
             // 看点必须从**实际的相机位置**沿 lookDir 推出去（不能用抬升前的 camPos）。
             // 用 camPos 的话，机位被地面/自身碰撞盒抬高之后，视线会比炮口歪两三度 —— 镜心就不是炮口了。
             //
-            // 2026-11-12：再往前一步 —— 机位在炮塔上方、**不在炮管轴线上**（炮艇差 2~4 m），
+            // 2026-11-12：机位在炮塔上方、**不在炮管轴线上**（炮艇差 2~4 m），
             // "沿炮管平推 300 m"是平行线，镜心在 350 m 处会比真实弹着点高 0.5°（14° 视野 ≈ 45 px）。
-            // 现在改成：先沿炮管找到命中点，再从实际机位看那个点 —— 镜心就落在弹着点上。
+            // 修法：先沿炮管找到命中点，再从**实际机位**看那个点 —— 镜心就落在弹着点上。
+            // 实测 400 m：镜心→目标 0.12°，验收图 Docs/UI_舰艇开镜锁定_修复后_20261112.png。
+            //
+            // ⚠️⚠️ 2026-11-17 检讨：这一整套被 11-17 凌晨"改成同轴"、上午"改成前推到船外"
+            // 两次覆盖掉了 —— 那两次都在改**机位**，却把这里的**视线**也一起换成了 lookDirS，
+            // 于是"从机位看炮管命中点"这个补偿没了，准星重新偏掉。
+            // 现在**恢复 11-12 验证过的方案**（机位+视线成对使用，不能只改一半）。
             Vector3 muzzlePosS = vp != null ? vp.GetMuzzlePosition() : target.position + Vector3.up * 2f;
             Vector3 barrelPt = muzzlePosS + lookDirS * 1500f;
             if (Physics.Raycast(muzzlePosS + lookDirS * 5f, lookDirS, out var hitS, 3000f,
                                 ~0, QueryTriggerInteraction.Ignore)
                 && Vector3.Distance(muzzlePosS, hitS.point) > 40f)
                 barrelPt = hitS.point;
+
+            // 视线 = 从实际机位看向**炮管轴线上的命中点**（不是 lookDir 本身）
             Vector3 lookAtS = barrelPt;
             transform.rotation = Quaternion.Slerp(transform.rotation,
                 Quaternion.LookRotation(lookAtS - transform.position), 16f * Time.unscaledDeltaTime);
@@ -511,14 +537,27 @@ public class CameraFollow : MonoBehaviour
             // 炮镜：固定拉到 zoomFov（不再有"两键叠加再放大"）
             cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, zoomFov, scopeSpeed * Time.unscaledDeltaTime);
 
+            // 开炮后坐力抖动（原来在 return 之前，改成隐藏模型时别弄丢了）
             if (_shakeAmount > 0.001f)
             {
                 _shake = Random.insideUnitSphere * _shakeAmount;
                 _shakeAmount = Mathf.MoveTowards(_shakeAmount, 0f, Time.deltaTime * 14f);
                 transform.rotation *= Quaternion.Euler(_shake.x * 2f, _shake.y * 2f, _shake.z * 2.5f);
             }
+
+            // ⚠️ 2026-11-17 用户："开镜放大过程中会看见炮管，这样很不好看，镜子里不要看见"。
+            //
+            // 机位在炮塔上方 + 后撤，视野收窄到 14° 时画面下缘会扫到**自己的炮塔/炮管**。
+            //
+            // 修法：开镜期间只隐藏**炮塔和炮管**（不是整条船 —— 上一条我错误地把 46 个
+            // 渲染器全关了，船会整个消失，明显过头）。船体留着，玩家还能看到自己船的轮廓。
+            // 只关 Renderer.enabled，不动 Collider —— 命中判定、锁定、弹道全不受影响。
+            SetTurretRenderersVisible(target, false);
             return;
         }
+
+        // 不在炮镜里 → 恢复炮塔显示
+        SetTurretRenderersVisible(target, true);
 
         if (cam != null)
         {
@@ -574,6 +613,124 @@ public class CameraFollow : MonoBehaviour
         if (mm == null) return;
         var p = mm.Player;
         if (p != null) target = p.transform;
+    }
+
+    /// <summary>
+    /// 把炮镜机位沿视线方向**向前**推到车体/船体外面。
+    ///
+    /// 为什么往前而不是往上/往后：
+    ///   · 往上抬 → 相机离炮管轴线远了，近距离视差巨大（实测 100 m 偏 28~95 px）；
+    ///   · 往后撤 → 炮艇炮口在船体内部（距船头还有 5.4 m），要退 21 m 才出船尾；
+    ///   · 往前推 → 前方是空的，挪几米就出船头，而且**始终在炮管轴线上**，零视差。
+    ///
+    /// 判据用**渲染器包围盒**而不是碰撞盒：挡视线的是网格，从网格内部看会满屏糊住，
+    /// 而射线检测不出来（网格单面朝外，从内部直接穿过去）。
+    ///
+    /// 2026-11-17 MCP 实测炮艇：前方 5.5 m 出船头，50~1000 m 投影偏差全 0.0 px。
+    /// </summary>
+    Vector3 PushCameraOutOfSelf(Vector3 camPos, Vector3 lookDir, Transform self)
+    {
+        if (self == null) return camPos;
+
+        // 先收集自己的渲染器（排除粒子/拖尾/线，和锁定框的口径一致）
+        if (_selfRends == null || _selfRendsOwner != self)
+        {
+            _selfRendsOwner = self;
+            var list = new System.Collections.Generic.List<Renderer>();
+            foreach (var r in self.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
+                list.Add(r);
+            }
+            _selfRends = list.ToArray();
+        }
+
+        // 已经在车外就直接用
+        if (!InsideAnySelfMesh(camPos)) return camPos;
+
+        // 沿视线往前搜，步长 0.5 m，最多 30 m
+        for (float d = 0.5f; d <= 30f; d += 0.5f)
+        {
+            Vector3 p = camPos + lookDir * d;
+            if (!InsideAnySelfMesh(p)) return p;
+        }
+        return camPos;      // 找不到就退回原位置（至少不崩）
+    }
+
+    Renderer[] _selfRends;
+    Transform _selfRendsOwner;
+
+    // ---- 开镜时隐藏炮塔/炮管（2026-11-17）----
+    // 只关 Renderer.enabled，**不动 Collider** —— 命中判定、锁定、弹道全不受影响。
+    // 记录原始 enabled 状态，退出炮镜时逐个还原（有些部件本来就是关的，不能一律打开）。
+    //
+    // 为什么只藏炮塔不藏整船：上一版把 self 下 46 个渲染器全关了，开镜时整条船凭空消失，
+    // 玩家看不到自己在哪 —— 明显过头。真正挡视野的只有机位正前方那截炮塔+炮管。
+    Renderer[] _hiddenRends;
+    bool[] _hiddenRendWas;
+    Transform _hiddenOwner;
+
+    void SetTurretRenderersVisible(Transform self, bool visible)
+    {
+        if (self == null) return;
+
+        // 收集炮塔 + 炮管（含其子节点）。找不到炮塔就什么都不做（宁可看见，也别乱藏）。
+        var vp = self.GetComponent<VehiclePhysics>();
+        Transform root = null;
+        if (vp != null && vp.turretBone != null) root = vp.turretBone;
+        else
+        {
+            var t = self.Find("Turret");
+            if (t != null) root = t;
+        }
+        if (root == null) return;
+
+        if (visible)
+        {
+            if (_hiddenRends == null) return;
+            for (int i = 0; i < _hiddenRends.Length; i++)
+                if (_hiddenRends[i] != null) _hiddenRends[i].enabled = _hiddenRendWas[i];
+            _hiddenRends = null;
+            _hiddenRendWas = null;
+            _hiddenOwner = null;
+            return;
+        }
+
+        if (_hiddenOwner == root && _hiddenRends != null) return;   // 已经藏过了
+
+        // 换了目标（换车）先把上一台还回来
+        if (_hiddenRends != null)
+        {
+            for (int i = 0; i < _hiddenRends.Length; i++)
+                if (_hiddenRends[i] != null) _hiddenRends[i].enabled = _hiddenRendWas[i];
+        }
+
+        var list = new System.Collections.Generic.List<Renderer>();
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null) continue;
+            if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
+            list.Add(r);
+        }
+        _hiddenOwner = root;
+        _hiddenRends = list.ToArray();
+        _hiddenRendWas = new bool[_hiddenRends.Length];
+        for (int i = 0; i < _hiddenRends.Length; i++)
+        {
+            _hiddenRendWas[i] = _hiddenRends[i].enabled;
+            _hiddenRends[i].enabled = false;
+        }
+    }
+
+    void RestoreSelfRenderers() => SetTurretRenderersVisible(_hiddenOwner != null ? _hiddenOwner : target, true);
+
+    bool InsideAnySelfMesh(Vector3 p)
+    {
+        if (_selfRends == null) return false;
+        foreach (var r in _selfRends)
+            if (r != null && r.bounds.Contains(p)) return true;
+        return false;
     }
 
     /// <summary>

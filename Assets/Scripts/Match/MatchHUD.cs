@@ -372,7 +372,9 @@ public class MatchHUD : MonoBehaviour
             var camL = Camera.main;
             if (camL != null)
             {
-                Vector3 spL = camL.WorldToScreenPoint(LockOnSystem.Target.transform.position + Vector3.up * 1.2f);
+                // 2026-11-16 23:05：准星锚点必须和锁定框、弹道一致（AimAnchor）。
+                // 原来这里用 transform.position + up*1.2，而框用 VisualCenter —— 差 1.05 m。
+                Vector3 spL = camL.WorldToScreenPoint(LockOnSystem.AimAnchor(LockOnSystem.Target));
                 if (spL.z > 0f)
                 {
                     Vector2 want = new Vector2(spL.x / _scale, (Screen.height - spL.y) / _scale);

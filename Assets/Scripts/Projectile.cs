@@ -19,10 +19,29 @@ public class Projectile : MonoBehaviour
     AmmoDef _ammo;
     VehicleCombat _owner;
 
-    // ---- 锁定制导（2026-11-07 用户要求的"Ctrl 锁定后左键必中"）----
+    // ---- 制导（2026-11-07 加，同日删；2026-11-16 23:20 恢复；2026-11-17 11:20 再次关闭）----
+    // 用户原话（2026-11-17）："这个子弹飞的有点不像真的子弹了…原先我们那种打的子弹是怎么设计的？"
+    //
+    // 昨晚 23:20 加的"制导 + 6 m 近炸"让炮弹以 360°/s 拐向目标、飞到 6 m 内自动判定命中，
+    // 观感上就是"会追人的魔法弹"，完全不是坦克炮该有的样子。
+    //
+    // 现在恢复**纯物理弹道**：打出去就按初速 + 重力飞，打不中就是打不中。
+    // 锁定只负责"帮你把炮口算准"（LockOnSystem.AimPointFor 会做提前量 + 弹道解算），
+    // 不再让炮弹自己拐弯。
+    //
+    // 保留字段和 SetHoming 接口（默认关闭），以后想做成"导弹"类武器时可以直接复用。
     VehicleCombat _homing;
-    float _homingTurn = 260f;      // 度/秒，够快就能拐过来
+    float _homingTurn = 360f;      // 度/秒，够快就能拐过来
     public void SetHoming(VehicleCombat target) => _homing = target;
+
+    /// <summary>
+    /// 制导弹丸总开关。**默认关闭**：炮弹按纯物理飞，不拐弯、不近炸。
+    /// 只有导弹/鱼雷这类真正的制导武器才应该打开（见 VehicleCombat 里的调用处）。
+    /// </summary>
+    public static bool EnableHoming = false;
+
+    /// <summary>近炸半径（米）：制导弹丸飞到这个距离内直接判定命中。</summary>
+    const float ProximityRadius = 6f;
 
     public void Launch(Vector3 dir, float speed, float damage, AmmoDef ammo, VehicleCombat owner, float maxRange = 0f)
     {
@@ -52,16 +71,27 @@ public class Projectile : MonoBehaviour
 
         _vel += Vector3.down * Gravity * Time.deltaTime;
 
-        // 锁定制导：把速度方向慢慢拐向目标（速度大小不变），保证"锁定后按左键必中"
-        if (_homing != null && _homing.Alive)
+        // 锁定制导：把速度方向慢慢拐向目标（速度大小不变）。
+        // 2026-11-17：**默认关闭** —— 炮弹按纯物理飞，不追人（见 EnableHoming 的注释）。
+        if (EnableHoming && _homing != null && _homing.Alive)
         {
-            Vector3 aim = _homing.transform.position + Vector3.up * 1.2f;
+            // 瞄准目标**真实中心**（所有渲染器包围盒合并，和锁定框同一口径）
+            Vector3 aim = HomingAimPoint(_homing);
             Vector3 want = (aim - transform.position);
+            float dist = want.magnitude;
             if (want.sqrMagnitude > 0.01f)
             {
                 float spd = _vel.magnitude;
                 _vel = Vector3.RotateTowards(_vel, want.normalized * spd, _homingTurn * Mathf.Deg2Rad * Time.deltaTime, 0f);
                 _vel = _vel.normalized * spd;
+            }
+
+            // 近炸：飞到目标附近直接判定命中（不再苛求射线正好穿过碰撞盒）。
+            // 这是用户要的"飞过去的时候偷偷打击"—— 炮弹本身还是按物理飞，只是判定放宽。
+            if (dist <= ProximityRadius)
+            {
+                HitDirect(_homing, transform.position);
+                return;
             }
         }
 
@@ -106,5 +136,41 @@ public class Projectile : MonoBehaviour
 
         if (DebugHits && Time.frameCount % 12 == 0)
             Debug.Log($"[Shell] {name} pos={transform.position:F1} 距地={transform.position.y - BattlefieldTerrain.SampleHeight(transform.position.x, transform.position.z):F1}");
+    }
+
+    /// <summary>
+    /// 制导目标点 = 目标**真实视觉中心**（所有启用渲染器包围盒合并，排除粒子/拖尾/机枪挂件）。
+    /// 和 LockOnSystem.VisualCenter 同一口径，保证"框画在哪、炮弹就拐向哪"。
+    /// </summary>
+    static Vector3 HomingAimPoint(VehicleCombat v)
+    {
+        if (v == null) return Vector3.zero;
+        bool any = false;
+        Bounds b = default;
+        foreach (var r in v.GetComponentsInChildren<Renderer>())
+        {
+            if (r == null || !r.enabled) continue;
+            if (r is ParticleSystemRenderer) continue;
+            if (r is TrailRenderer) continue;
+            if (r is LineRenderer) continue;
+            if (!string.IsNullOrEmpty(r.name) && r.name.StartsWith("MG_", System.StringComparison.Ordinal))
+                continue;
+            if (!any) { b = r.bounds; any = true; }
+            else b.Encapsulate(r.bounds);
+        }
+        return any ? b.center : v.transform.position + Vector3.up * 1.2f;
+    }
+
+    /// <summary>近炸命中：直接对目标结算伤害（不再依赖射线穿过碰撞盒）。</summary>
+    void HitDirect(VehicleCombat target, Vector3 at)
+    {
+        if (target == null || !target.Alive) return;
+        Vector3 dir = (at - target.transform.position);
+        if (dir.sqrMagnitude < 0.01f) dir = Vector3.up;
+        // 用一个从"炮弹来向"打过去的点，让装甲/入射角判定合理
+        var res = target.TakeHit(_damage, _ammo, at - dir.normalized * 5f, _owner, at, dir.normalized);
+        VehicleCombat.ShotsHit++;
+        if (_owner != null && _owner.IsPlayer) MatchHUD.ShowHitFeedback(res);
+        Destroy(gameObject);
     }
 }

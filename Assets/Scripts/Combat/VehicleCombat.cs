@@ -207,7 +207,16 @@ public class VehicleCombat : MonoBehaviour
         _phys = GetComponent<VehiclePhysics>();
         if (def == null) def = _phys != null ? _phys.def : null;
         if (def != null) { maxHp = def.maxHp * HpScale; hp = maxHp; }
-        EnsureHitCollider();
+        // ⚠️ 命中盒**不能在这里建**（2026-11-16 23:10 修「打空气扣血」）。
+        // VehicleFactory 的顺序是：先 VehicleModelBinder.Attach（挂模型 + DropToGround 下沉）
+        // 再 AddComponent<VehicleCombat>()，所以 Awake 时模型**通常**已经在了。
+        // 但实测发现 Awake 里 GetComponentsInChildren<MeshFilter>() 拿不到网格
+        // （预制体实例化 + 组件添加的时机差异），EnsureHitCollider 直接 has=false return，
+        // 结果**根节点上根本没有命中盒**。
+        // 后果：炮艇只剩 FBX 自带的 42 个 (1,1,1) 小方块（全在世界原点 y≈0），
+        // 玩家瞄船身 y≈6.75，炮弹却只能撞到 y≈0 的空气方块 —— 看着就是
+        // "对着船上方打一发、抽走空气把船打掉血"。
+        // 改到 Start() 里建，那时模型 100% 就绪。
         ApplyTeamTint();
 
         // 出生保护 + 受伤表现（冒烟/着火）
@@ -220,6 +229,15 @@ public class VehicleCombat : MonoBehaviour
         // 部位伤害系统（A 档）
         _modules = GetComponent<VehicleModule>();
         if (_modules == null) _modules = gameObject.AddComponent<VehicleModule>();
+    }
+
+    /// <summary>
+    /// 建命中盒（必须在模型挂好之后）。见 Awake 里那段注释：放 Awake 会静默失败，
+    /// 导致炮艇只剩 FBX 自带的错位小碰撞体，玩家"对着船上方打、抽空气扣血"。
+    /// </summary>
+    void Start()
+    {
+        EnsureHitCollider();
     }
 
     /// <summary>直接击毁（弹药架殉爆这类部位效果用）。</summary>
@@ -326,7 +344,12 @@ public class VehicleCombat : MonoBehaviour
             }
         }
 
-        if (!has) return;
+        if (!has)
+        {
+            // 走到这里说明模型还没挂好 —— 以前是静默 return，导致"打空气扣血"查了很久。
+            Debug.LogWarning($"[VehicleCombat] {name} 建命中盒失败：找不到 MeshFilter.sharedMesh（模型未就绪）");
+            return;
+        }
         var box = gameObject.AddComponent<BoxCollider>();
         box.center = local.center;
         box.size = local.size;
@@ -468,6 +491,19 @@ public class VehicleCombat : MonoBehaviour
         var shell = go.AddComponent<Projectile>();
         shell.Launch(dir, w.projectileSpeed, w.baseDamage, ammo, this, w.range);
 
+        // 制导：**默认不加**（2026-11-17 用户："子弹不像真的子弹了"）。
+        // 昨晚 23:20 曾对锁定目标无条件加制导 + 6 m 近炸，炮弹会 360°/s 拐弯追人，
+        // 观感是"魔法弹"而不是坦克炮。现在恢复纯物理弹道：
+        // 锁定只负责**把炮口算准**（LockOnSystem.AimPointFor 做提前量 + 弹道解算），
+        // 打出去之后一律按初速 + 重力飞，打不中就是打不中。
+        //
+        // 只有真正的制导武器（导弹）才加制导 —— 用 AmmoDef 上的标记判断。
+        bool isGuidedMissile = ammo != null &&
+            (!string.IsNullOrEmpty(ammo.id) && ammo.id.Contains("missile"));
+        if (isGuidedMissile && IsPlayer && LockOnSystem.Active &&
+            LockOnSystem.Target != null && LockOnSystem.Target.Alive)
+            shell.SetHoming(LockOnSystem.Target);
+
 
         // 玩家开炮：镜头抖一下 + 炮口闪光
         ShakeCamera(0.55f);
@@ -564,6 +600,10 @@ public class VehicleCombat : MonoBehaviour
         go.transform.rotation = Quaternion.LookRotation(dir);
         var shell = go.AddComponent<Projectile>();
         shell.Launch(dir, Mathf.Max(300f, w.projectileSpeed), w.baseDamage, ammo, this, w.range);
+
+        // 机枪也是纯物理弹道（2026-11-17：不再对锁定目标加制导 + 近炸）。
+        // 机枪的准头靠"按准星方向打"（FireDeckGunAt 用屏幕中心/锁定点当目标），
+        // 不靠让子弹拐弯。
 
         // 枪口闪光（很小，机枪连射不该晃镜头）
         var light = go.AddComponent<Light>();

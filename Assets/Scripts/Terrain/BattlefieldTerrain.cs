@@ -8,7 +8,7 @@ using UnityEngine;
 ///   坡度：float deg = BattlefieldTerrain.SampleSteepness(worldPos);
 ///   碰撞：TerrainCollider 自动生成，不用管。
 ///
-/// 世界坐标：x、z ∈ [-1000, 1000]；高度 y ∈ [-100, 300]；海平面 y = -2.667（2026-11-12 抬高 4 m）。
+/// 世界坐标：x、z ∈ [-1000, 1000]；高度 y ∈ [-100, 300]；海平面 y = 4（2026-11-16 抬到 +4，见下方常量）。
 /// </summary>
 public static class BattlefieldTerrain
 {

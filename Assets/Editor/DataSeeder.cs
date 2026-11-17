@@ -22,32 +22,48 @@ public static class DataSeeder
         EnsureFolder("Assets/Data/Battlefield");
 
         // ---------- 弹药 ----------
-        var ap    = Ammo("ap",      "穿甲弹",    1.2f, 0.4f, 0.1f, 0.9f, 5);
-        var he    = Ammo("he",      "高爆弹",    0.5f, 1.5f, 0.6f, 0.8f, 5);
-        var heat  = Ammo("heat",    "破甲弹",    1.0f, 0.9f, 0.1f, 0.9f, 15);
-        var aa    = Ammo("aa",      "防空弹",    0.1f, 0.5f, 1.5f, 0.1f, 10);
-        var torp  = Ammo("torpedo", "鱼雷",      0.1f, 0.2f, 0.0f, 1.0f, 30);
-        var bomb  = Ammo("bomb",    "航空炸弹",  0.8f, 1.2f, 0.2f, 1.2f, 40);
+        // ⚠️ 这里的数值必须和 Assets/Data/Ammo/*.asset 的现值**逐字一致**。
+        // 否则谁跑一次「Tools/铁皮黎明/生成默认数据」，改过的穿深/倍率就被覆盖回旧值。
+        var ap    = Ammo("ap",      "穿甲弹",    1.2f,  0.4f,  0.1f,  0.9f,  5,  260f, false, 12f);
+        var he    = Ammo("he",      "高爆弹",    0.5f,  1.5f,  0.6f,  0.8f,  5,   60f);
+        var heat  = Ammo("heat",    "破甲弹",    1.0f,  0.9f,  0.1f,  0.9f,  15, 400f, true);
+        var aa    = Ammo("aa",      "防空弹",    0.1f,  0.5f,  1.5f,  0.1f,  10,  30f);
+        var torp  = Ammo("torpedo", "鱼雷",      0.1f,  0.2f,  0.0f,  1.0f,  30);
+        var bomb  = Ammo("bomb",    "航空炸弹",  0.8f,  1.2f,  0.2f,  1.2f,  40);
         // 航空武器：机炮打不穿装甲，导弹才是反坦克/反舰的主力
-        var cannon    = Ammo("cannon",     "机炮炮弹",   0.15f, 0.5f, 1.5f, 0.10f, 3);
-        var missileAt = Ammo("missile_at", "反坦克导弹", 2.60f, 1.2f, 0.0f, 1.60f, 60);
-        var missileAa = Ammo("missile_aa", "空空导弹",   0.20f, 0.3f, 2.6f, 0.10f, 50);
+        var cannon    = Ammo("cannon",     "机炮炮弹",   0.15f, 0.5f, 1.5f, 0.10f, 3,  40f, false, 3f);
+        var missileAt = Ammo("missile_at", "反坦克导弹", 2.60f, 1.2f, 0.0f, 1.60f, 60, 500f, true);
+        var missileAa = Ammo("missile_aa", "空空导弹",   0.20f, 0.3f, 2.6f, 0.10f, 50, 40f);
+        // 2026-11-12：机枪专用弹。以前机枪直接挂 Ammo_ap（穿深 260），12.7mm 能正面打穿主战坦克。
+        var mgAmmo    = Ammo("mg",         "机枪弹",     0.15f, 1.2f, 0.47f, 0.20f, 1, 40f);
 
         // ---------- 武器 ----------
         // 弹速 = 真实炮口初速。原来写 140~250 m/s（约等于弹弓），2 km 图上要飞 4~5 秒，
         // 目标早开出 50 米 —— 这就是"炮弹打不中"的真正根因。现在按真炮取值：
         //   75mm 780 / 120mm 1600 / 130mm 950 / 20mm 机炮 1050 / 舰炮 800 m/s
-        // 射程也同步放大到 2 km 图该有的交战距离（原来 160 m 在 2000 m 图上等于刺刀）。
+        // 射程也同步放大到 2 km 图该有的交战距离（原来 160 m 在 2000m 图上等于刺刀）。
+        //
+        // ⚠️ 与 Assets/Data/Weapons/*.asset 现值保持逐字一致（2026-11-16 收工值）：
+        //   舰炮 420/4.0/1300 破甲弹；机炮 4.5；机枪用 Ammo_mg；空空导弹 1 发。
         var gun75  = Weapon("gun_75",   "75mm 炮",     180f, 3.0f,  700f,  780f, Domain.Land, ap, he);
         var gun120 = Weapon("gun_120",  "120mm 主炮",  300f, 4.5f, 1200f, 1600f, Domain.Land, ap, he, heat);
         var gun130 = Weapon("gun_130",  "130mm 重炮",  420f, 6.0f,  900f,  950f, Domain.Land, ap, heat);
-        var mg12   = Weapon("mg_12",    "12mm 机枪",    25f, 0.12f, 400f,  850f, Domain.Land, ap);
-        var naval  = Weapon("naval_gun","舰炮",        260f, 5.0f, 1200f,  800f, Domain.Sea,  he, heat);
-        var torpL  = Weapon("torpedo_launcher", "鱼雷管", 850f, 9f, 500f, 50f, Domain.Sea,  torp);
-        var gun20  = Weapon("gun_20",   "20mm 机炮",    60f, 0.15f, 800f, 1050f, Domain.Air,  cannon, aa);
+        // 2026-11-16：机枪必须用 mg_aa（deckMounted=true 的独立挂点），并且只挂 Ammo_mg。
+        // 旧写法是 mg_12 + Ammo_ap（穿深 260）→ 12.7mm 能正面打穿主战坦克 220mm 首上；
+        // 而且 mg_12 的 deckMounted=false，DeckWeapon 会返回 null，机枪直接消失。
+        var mgAa   = Deck(Weapon("mg_aa", "12.7mm 高射机枪", 14f, 0.11f, 850f, 900f, Domain.Land, mgAmmo));
+        // 2026-11-16：舰炮换破甲弹（穿深 400）才打得穿陆军；原来只有高爆弹（穿深 60）连轻坦都打不穿。
+        var naval  = Weapon("naval_gun","舰炮",        420f, 4.0f, 1300f,  800f, Domain.Sea,  heat, ap, he);
+        var torpL  = Weapon("torpedo_launcher", "鱼雷管", 5500f, 9f, 600f, 50f, Domain.Sea,  torp);
+        // 2026-11-16：机炮 60 → 4.5（对空从 600 DPS 压到 45 DPS，否则 0.5 秒一架飞机）
+        var gun20  = Weapon("gun_20",   "20mm 机炮",   4.5f, 0.15f, 800f, 1050f, Domain.Air,  cannon, aa);
         var misAt  = Weapon("missile_at","反坦克导弹", 520f, 7.0f, 1400f, 320f, Domain.Air,  missileAt);
         var misAa  = Weapon("missile_aa","空空导弹",   380f, 5.0f, 1600f, 480f, Domain.Air,  missileAa);
         var bombR  = Weapon("bomb_rack","航空炸弹挂架", 750f, 8.0f, 300f,   0f, Domain.Air,  bomb);
+
+        // 备弹数（0/未设 = 无限）。只有飞机挂架有数。
+        Cap(misAa, 1);       // 2026-11-16：空空导弹 无限 → 1 发（机翼按备弹挂，1 发就挂 1 枚）
+        Cap(misAt, 8);       // 反坦克导弹 8 发
 
         // ---------- 载具 ----------
         // 参数顺序：id, 名, 域, 价, 血, 装甲模式, 正/侧/背, 统一, 速度, 转向, 炮塔转速,
@@ -55,25 +71,27 @@ public static class DataSeeder
         Vehicle("land_light", "轻坦", Domain.Land, 160, 800, ArmorMode.Directional,
             0.95f, 1.10f, 1.30f, 0f, 18f, 90f, 60f,
             320f, 15f, 0.8f, 1.6f, 1.0f,
-            TerrainType.Land | TerrainType.ShallowWater, 80, "快、皮薄，能爬 35° 陡坡", gun75, mg12);
+            TerrainType.Land | TerrainType.ShallowWater, 80, "快、皮薄，能爬 35° 陡坡", gun75, mgAa);
 
         Vehicle("land_main", "主战坦克", Domain.Land, 200, 1200, ArmorMode.Directional,
             0.70f, 0.90f, 1.10f, 0f, 12f, 60f, 45f,
             750f, 45f, 0.9f, 1.8f, 1.2f,
-            TerrainType.Land | TerrainType.ShallowWater, 80, "均衡，能爬 29°", gun120, mg12);
+            TerrainType.Land | TerrainType.ShallowWater, 80, "均衡，能爬 29°", gun120, mgAa);
 
-        var heavy = Vehicle("land_heavy", "重装坦克", Domain.Land, 220, 1600, ArmorMode.Directional,
+        // 重装坦克的 modelYawOffset 保持 0（2026-11-06 模型拆件后长轴已改成 +Z）。
+        // 历史上这里写过 90（10-31 的旧模型长轴沿 +X），11-06 已废弃 —— 再写 90 会让炮塔歪 90°。
+        Vehicle("land_heavy", "重装坦克", Domain.Land, 220, 1600, ArmorMode.Directional,
             0.60f, 0.80f, 1.05f, 0f, 8f, 40f, 30f,
             800f, 65f, 1.0f, 2.0f, 1.4f,
-            TerrainType.Land | TerrainType.ShallowWater, 90, "正面极硬，只能爬 22°", gun130, mg12);
-        // Lux3D 出的重装坦克长轴沿 +X，其余 5 台沿 +Z —— 这里转正
-        heavy.modelYawOffset = 90f;
-        EditorUtility.SetDirty(heavy);
+            TerrainType.Land | TerrainType.ShallowWater, 90, "正面极硬，只能爬 22°", gun130, mgAa);
 
-        Vehicle("sea_gunboat", "炮艇", Domain.Sea, 180, 1400, ArmorMode.Directional,
+        // 2026-11-16 用户定：炮艇血量干脆给到 7000（海上霸主，舰炮 420 伤要打 ~17 发）。
+        // 注意这是**设计选择**，不是 7.14 缩放的残留 —— 坦克那 3 台已回到 800/1200/1600。
+        // 第三把武器是 12.7mm 独立机枪（和陆战载具同一把 mg_aa），别漏。
+        Vehicle("sea_gunboat", "炮艇", Domain.Sea, 180, 7000, ArmorMode.Directional,
             0.85f, 1.00f, 1.15f, 0f, 24f, 70f, 50f,
             1200f, 40f, 1.2f, 1.2f, 0.8f,
-            TerrainType.ShallowWater | TerrainType.DeepWater, 80, "海上霸主，吃水 0.8m", naval, torpL);
+            TerrainType.ShallowWater | TerrainType.DeepWater, 80, "海上霸主，吃水 0.8m", naval, torpL, mgAa);
 
         var fighter = Vehicle("air_fighter", "战斗机", Domain.Air, 160, 300, ArmorMode.Uniform,
             1f, 1f, 1f, 1.00f, 45f, 120f, 0f,
@@ -85,6 +103,10 @@ public static class DataSeeder
         fighter.engineLoopName = Sfx.EngineLoopJet;
         EditorUtility.SetDirty(fighter);
 
+        // 2026-11-16 22:10：炸弹**不挂**。Weapon_bomb_rack 是 hitscan（projectileSpeed=0），
+        // 射程只有 300 m，而攻击机巡航高度 220 m —— 射线长度 = 220/sin(俯角)，
+        // 只有俯角 ≥ 47° 才够得着，正常对地俯角 20~40° 全部超出射程，实际打不中。
+        // 资产留着（bombR 仍创建），要做真炸弹得先改成抛投下坠弹并提射程。
         var attacker = Vehicle("air_attacker", "攻击机", Domain.Air, 200, 450, ArmorMode.Uniform,
             1f, 1f, 1f, 1.10f, 32f, 80f, 0f,
             1100f, 12f, 0f, 0f, 0f,
@@ -112,7 +134,8 @@ public static class DataSeeder
         }
         match.roster = roster.ToArray();
 
-        match.startingGold = 200;
+        // 与 Match_Default.asset 现值一致（资产是 600，这里原来写 200 —— 跑一次 seeder 就把开局金币砍到 1/3）
+        match.startingGold = 600;
         match.respawnBase = 80;
         match.respawnGrowth = 1.22f;
         match.swapGrowth = 1.15f;
@@ -136,8 +159,11 @@ public static class DataSeeder
         var zPort = Zone("zone_port", "港口海战", Domain.Sea, TerrainType.DeepWater,
             new Rect(-350f, 217f, 700f, 700f), 15,
             new[] { new Vector2(-667f, 500f), new Vector2(667f, 500f) });          // 设计 (0,34) r21
+        // 2026-11-16：城区据点挪回陆地。Rect 的中心是 (x + w/2, y + h/2)，
+        // 旧值 Rect(-417,-300,834,834) 的中心是 (0, +117)、北边缘 z=534，而岸线在 z≈292 —— 240 m 伸进海里。
+        // 新值 Rect(-300,-330,600,600) 覆盖 z -330~270，全在陆地上。
         var zUrban = Zone("zone_urban", "城区巷战", Domain.Land, TerrainType.Land,
-            new Rect(-417f, -300f, 834f, 834f), 15,
+            new Rect(-300f, -330f, 600f, 600f), 15,
             new[] { new Vector2(-333f, 117f), new Vector2(333f, 117f) });          // 设计 (0,7) r25
         var zHill = Zone("zone_hill", "山地伏击", Domain.Land, TerrainType.Land,
             new Rect(-200f, -950f, 400f, 400f), 15,
@@ -167,12 +193,18 @@ public static class DataSeeder
         // ---------- 战场（v2：2000×2000）----------
         var bf = GetOrCreate<BattlefieldDef>($"{Root}/Battlefield/Battlefield_Default.asset");
         bf.arenaSize = 2000f;
-        bf.allySpawnLineX = -933f;
-        bf.enemySpawnLineX = 933f;
+        // 2026-11-06 修过：±933 正好落在边界山脉里 → 坦克生在山上。
+        // 改成 ±640，并且 MatchManager 的出生点扫描带坡度检查（>12° 跳过）。别改回去。
+        bf.allySpawnLineX = -640f;
+        bf.enemySpawnLineX = 640f;
         bf.spawnLineZMin = -967f;
         bf.spawnLineZMax = 967f;
-        bf.waterLevel = 4f;     // 2026-11-16：与 BattlefieldTerrain.WaterLevel 同步
-        bf.zones = new[] { zPort, zUrban, zHill, zFlankL, zFlankR };
+        // ⚠️ waterLevel 是**死字段**：运行时没有任何代码读它（全走 BattlefieldTerrain.WaterLevel 常量）。
+        // 保留只为资产字段完整；真改海平面请改 BattlefieldTerrain.WaterLevel + 场景 Water_Sea 的 Y。
+        bf.waterLevel = 4f;
+        // 2026-11-16 用户定：据点保持 3 个（港口/城区/山地）。
+        // 左翼/右翼平原（zFlankL/zFlankR）资产留着但不引用 —— 补进来会改占点节奏和收益。
+        bf.zones = new[] { zPort, zUrban, zHill };
         bf.coinBoxPoints = new[]
         {
             new Vector2(-667f, 500f), new Vector2(667f, 500f),      // 海域
@@ -193,12 +225,15 @@ public static class DataSeeder
 
     // ---------------- 辅助 ----------------
 
-    static AmmoDef Ammo(string id, string name, float vsArmor, float vsSoft, float vsAir, float vsSea, int price)
+    static AmmoDef Ammo(string id, string name, float vsArmor, float vsSoft, float vsAir, float vsSea, int price,
+        float penetration = 0f, bool isChemical = false, float penFalloff = 0f)
     {
         var a = GetOrCreate<AmmoDef>($"{Root}/Ammo/Ammo_{id}.asset");
         a.id = id; a.displayName = name;
         a.vsArmor = vsArmor; a.vsSoft = vsSoft; a.vsAir = vsAir; a.vsSea = vsSea;
         a.pricePerShot = price; a.isSupport = false;
+        a.penetration = penetration; a.isChemical = isChemical;
+        a.penFalloffPer100m = penFalloff;
         EditorUtility.SetDirty(a);
         return a;
     }
@@ -211,6 +246,30 @@ public static class DataSeeder
         w.baseDamage = dmg; w.reloadTime = reload; w.range = range; w.projectileSpeed = speed;
         w.mountedDomain = dom; w.ammoTypes = ammo;
         EditorUtility.SetDirty(w);
+        return w;
+    }
+
+    /// <summary>单独设备弹数（只有飞机挂架类武器需要：导弹 1 发 / 反坦克 8 发）。</summary>
+    static WeaponDef Cap(WeaponDef w, int cap)
+    {
+        if (w != null) { w.ammoCapacity = cap; EditorUtility.SetDirty(w); }
+        return w;
+    }
+
+    /// <summary>
+    /// 把武器标成"独立挂点机枪"（甲板/车顶）：不吃炮塔俯仰限制、可高仰角打飞机、走瞬时命中。
+    /// 载具的 DeckWeapon 只认 deckMounted=true 的那把；漏了这个标记机枪就不会出现。
+    /// </summary>
+    static WeaponDef Deck(WeaponDef w)
+    {
+        if (w != null)
+        {
+            w.deckMounted = true;
+            w.deckMaxElevation = 85f;
+            w.deckMaxDepression = -12f;
+            w.deckPitchSpeed = 150f;
+            EditorUtility.SetDirty(w);
+        }
         return w;
     }
 
