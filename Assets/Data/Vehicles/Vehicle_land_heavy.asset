@@ -16,7 +16,7 @@ MonoBehaviour:
   displayName: "\u91CD\u88C5\u5766\u514B"
   domain: 0
   engineLoopName: 
-  price: 220
+  price: 260
   respawnBaseCost: 90
   maxHp: 1600
   armorMode: 0

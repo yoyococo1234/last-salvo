@@ -43,23 +43,47 @@ public class VehiclePhysics : MonoBehaviour
     [Header("飞行手感（战争雷霆式：鼠标控姿态 + W/S 油门 + A/D 横滚）")]
     [Tooltip("鼠标灵敏度（虚拟摇杆）")]
     public float airMouseSensitivity = 0.5f;
-    [Tooltip("鼠标松手后虚拟摇杆回中速度。2026-11-12 从 0.9 降到 0.5：长按转向不再被回中顶住")]
+    // 🟢🟢 2026-11-18：**整组飞行参数回退到 2026-11-12「第一次能翻转」那版**。
+    // 用户原话："原先我们最开始做出来翻转的那个时候都比现在好"。
+    //
+    // 11-16 / 11-17 这几天把四个值一路往"精确"方向推，结果是把"能飞"改成了"不能飞"：
+    //   · 回中 0.5 → 1.2：摇杆 0.4 秒就归零，按住鼠标也维持不住一个持续转弯/筋斗
+    //   · 滚转 200 → 110 → 140：滚转是空战里最该利落的轴，慢了就是"拖"
+    //   · 自动改平 3.0/s、70° 以内全生效：MCP 实测「压杆 45° 松手 → 0.6 秒就被拽回 0.5°」，
+    //     等于飞机一直在跟玩家抢杆。压不住杆就压不出坡度，压不出坡度就没有转弯
+    //     （转弯那一行还是死代码，见 UpdateAir 里的 bankSin）
+    // 现在：回中 0.5 / 俯仰 80 / 偏航 40 / 滚转 200 / 自动改平只兜小角度（30° 内、1.5/s）
+    [Tooltip("鼠标松手后虚拟摇杆回中速度（每秒）。2026-11-18 回退到 0.5（11-12 原值）：按住能维持转向")]
     public float airRecenterSpeed = 0.5f;
-    [Tooltip("最大俯仰角速度（度/秒）。2026-11-12 放开姿态后从 55 提到 80，翻跟头才不至于太慢")]
+    [Tooltip("最大俯仰角速度（度/秒）。2026-11-18 回退到 80（11-12 原值，翻跟头才不慢）")]
     public float airPitchRate = 80f;
-    [Tooltip("最大偏航角速度（度/秒）")]
-    public float airYawRate = 40f;
-    [Tooltip("横滚角速度（度/秒）。2026-11-16 用户反馈 200 转太快，回到 110")]
-    public float airRollRate = 110f;
-    [Tooltip("松手小幅回正：倾斜小于这个角度（度）时才自动把机翼摆平。超过就保持，不然做不了桶滚/倒飞")]
+    [Tooltip("最大偏航角速度（度/秒）。2026-11-18 晚 40→28：用户「偏转的速度太快了」")]
+    public float airYawRate = 28f;
+    [Tooltip("横滚角速度（度/秒）。2026-11-18 回退到 200（11-12 原值，桶滚要滚得起来）")]
+    public float airRollRate = 200f;
+    // 🟢 2026-11-18 15:55 用户第五次反馈（"左右翻转的时候无法固定在那个角度，一定会翻回来，
+    // 我们不是早写过代码说一定角度内自动回去、其他的情况不动吗"）——
+    // 他记的没错，**这才是原本的设计**：小角度自己回正，大角度保持不动（盘旋/桶滚靠它）。
+    // 我前两轮为了"没什么操作时把飞机掰正"，一路把上限从 30 抬到 80 再抬到 180，
+    // 结果**任何坡度都会被拽平**，盘旋压不住坡度 —— 过头了。
+    //
+    // 回到 40°：日常小偏差（≤40°）松手自己摆平；压过 40° 就是"我要盘旋/滚过去"，保持不动。
+    // 按住 A/D 的时候这段逻辑整段不执行，所以滚转过程中永远不抢杆。
+    [Tooltip("松开 A/D 且没在转弯时自动摆正的最大倾角（度）。40 = 小坡度自己回正，超过 40° 保持不动（盘旋/桶滚）")]
     public float airAutoLevelMaxBank = 40f;
-    [Tooltip("松手小幅回正的速度系数（越大回得越快）")]
-    public float airAutoLevelRate = 3f;
+    [Tooltip("自动改平速度（每秒收敛率，帧率无关）。2.0 ≈ 0.35 秒消掉一半侧倾；再快就是抢杆了")]
+    public float airAutoLevelRate = 2f;
     [Tooltip("按住 F 一键改平的收敛率（每秒）。2026-11-17 用户反馈「F 键回正太快了」。" +
              "从 6 降到 2.2：平掉 90° 滚转约 1.4 秒，能看出过程而不是啪一下")]
     public float airLevelFlightRate = 2.2f;
-    [Tooltip("靠横滚带出的转弯强度（度/秒，满横滚时）")]
-    public float airBankTurnRate = 42f;
+    [Tooltip("靠横滚带出的转弯强度（度/秒，满横滚时）。2026-11-18 晚 42→30：转弯整体放慢约 30%")]
+    public float airBankTurnRate = 30f;
+    // 🟢 2026-11-18 15:00 用户："我们干脆不要前后翻滚功能了，只要左右翻滚吧"。
+    // 前后翻滚（筋斗/空翻）翻过去以后没有参照，玩家分不清姿态，是这一串投诉的根源；
+    // 左右翻滚（桶滚）不受影响，仍然 360° 自由。
+    // 所以给俯仰加硬限位：能爬到 70°、能俯冲到 -70°，但**不能翻过顶**。
+    [Tooltip("俯仰硬限位（度）。70 = 能大角度爬升/俯冲但不能前后空翻；左右滚转不受限")]
+    public float airMaxPitchDeg = 70f;
     [Tooltip("姿态跟随输入的速度。太小的话模型会明显滞后于飞行方向，看着像横着飘")]
     public float airResponse = 22f;
     [Tooltip("油门变化速度（每秒）")]
@@ -68,6 +92,8 @@ public class VehiclePhysics : MonoBehaviour
     public float airCrashHeight = 3f;
     [Tooltip("最高飞行高度")]
     public float airCeiling = 1500f;
+    [Tooltip("撞楼检测球半径（米）。飞机中心到这个半径内有实体障碍就算撞上")]
+    public float airCrashRadius = 3f;
 
     // ---- 飞行姿态（正 = 抬头 / 右横滚）----
     [System.NonSerialized] public float airPitch;
@@ -583,8 +609,37 @@ public class VehiclePhysics : MonoBehaviour
                 float rollRate = Bindings.AxisH * airRollRate;
 
                 // 滚转带出转弯：用当前真实姿态算倾角（右滚为正），不再依赖 airRoll 字段
-                float bankSin = Vector3.Dot(transform.up, transform.right);
+                // 🔴🔴 2026-11-18 修：「压杆带出转弯」这一行**从来没生效过**。
+                // 原写法 `Vector3.Dot(transform.up, transform.right)` —— up 和 right 是同一个
+                // 正交基里的两个轴，点积**恒等于 0**（MCP 实测 0.000000，任何姿态都是 0）。
+                // 于是压坡度完全不转弯，飞机只能靠鼠标左右偏航拐弯 —— 这就是"像在轨道上飞/
+                // 不跟手"的来源：空战里 90% 的转弯应该来自压杆。
+                //
+                // 正确的量：机身 up 在「水平右方向」上的投影 = sin(坡度)。
+                // 平飞时 = 0；右滚 45° = +0.707；倒飞 = 0；左滚为负（左转）。
+                Vector3 rightHoriz = Vector3.Cross(Vector3.up, transform.forward);
+                float bankSin = rightHoriz.sqrMagnitude > 0.0001f
+                    ? Vector3.Dot(transform.up, rightHoriz.normalized)
+                    : 0f;
                 yawRate += bankSin * airBankTurnRate;
+
+                // ---- 俯仰硬限位：不做前后空翻（2026-11-18 15:00 用户要求）----
+                // 用户："我们干脆不要前后翻滚功能了，只要左右翻滚吧"。
+                // 筋斗翻过去以后没有参照、玩家分不清姿态，是这一串投诉的根源；
+                // 桶滚（左右滚）完全不受影响，仍然 360° 自由。
+                // 做法：算出"这一帧本来要俯仰到的角度"，超出 ±airMaxPitchDeg 就把增量截断
+                //（不是往反方向掰，所以贴着限位继续推鼠标只是停住，不会弹）。
+                if (Mathf.Abs(pitchRate) > 0.001f)
+                {
+                    float curPitch = Mathf.Asin(Mathf.Clamp(transform.forward.y, -1f, 1f)) * Mathf.Rad2Deg;
+                    if (Mathf.Abs(curPitch) <= airMaxPitchDeg + 0.5f)
+                    {
+                        float want = curPitch + pitchRate * dt;
+                        float clamped = Mathf.Clamp(want, -airMaxPitchDeg, airMaxPitchDeg);
+                        if (!Mathf.Approximately(want, clamped))
+                            pitchRate = (clamped - curPitch) / Mathf.Max(dt, 0.0001f);
+                    }
+                }
 
                 var rot = transform.rotation;
                 rot = Quaternion.AngleAxis(yawRate * dt, Vector3.up) * rot;         // 世界偏航
@@ -592,19 +647,37 @@ public class VehiclePhysics : MonoBehaviour
                 rot = rot * Quaternion.AngleAxis(-rollRate * dt, Vector3.forward);  // 机身滚转（负角 = 右滚）
                 transform.rotation = rot;
 
-                // 2026-11-16 用户要求：**小幅度的 AD 松手之后自己回正**。
-                // 只在 A/D 都松开、且倾斜没超过 airAutoLevelMaxBank 时生效；
-                // 大角度（要桶滚 / 倒飞）保持不动，否则特技就做不出来了。
+                // 自动改平（2026-11-16 用户要求；2026-11-18 晚定稿：**只兜小角度 + 立刻开始**）。
+                // 判据只留「没按 A/D」—— 2026-11-18 15:55 用户："松手之后回正的时间太慢了，
+                // 应该立刻做回正动作，当然回正速度不要太快"。
+                //
+                // 之前这里还卡了一条 `_airAimX < 0.25`，结果松手后要等摇杆从 1.0 衰减到 0.25
+                // （按回中速度 0.5 = **最多 1.5 秒**）才开始摆平 —— 那 1.5 秒就是"回正太慢"的来源。
+                // 现在松开 A/D 当帧就开始摆平；慢不慢只由 airAutoLevelRate(2.0) 决定。
                 if (Mathf.Abs(Bindings.AxisH) < 0.05f)
                 {
-                    float tilt = Vector3.Angle(transform.up, Vector3.up);
-                    if (tilt > 0.4f && tilt < airAutoLevelMaxBank)
+                    // 🔴🔴 2026-11-18 00:05 修「飞机模型总是歪着」（用户：问题一选 A）。
+                    //
+                    // 旧代码用 `Vector3.Angle(transform.up, Vector3.up)` 当"侧倾角"，但那是
+                    // **俯仰 + 侧倾的合成角**。空战里飞机经常抬头 60~80° 爬升，
+                    // 这时 tilt 早就超过 70（airAutoLevelMaxBank），
+                    // **自动改平直接失效** —— 之前攒下的那点侧倾就永远留着，怎么飞都是歪的。
+                    //
+                    // 正确做法：只测**绕机身前轴的真实侧倾**（把机头投影掉），
+                    // 俯仰再大也不影响这个判断。
+                    Vector3 fwdAxis = transform.forward;
+                    Vector3 refUpAxis = Vector3.ProjectOnPlane(Vector3.up, fwdAxis);
+                    if (refUpAxis.sqrMagnitude > 0.01f)
                     {
-                        Vector3 levelUp = Vector3.ProjectOnPlane(Vector3.up, transform.forward);
-                        if (levelUp.sqrMagnitude > 0.01f)
+                        refUpAxis.Normalize();
+                        float bankAngle = Vector3.SignedAngle(refUpAxis, transform.up, fwdAxis);
+                        if (Mathf.Abs(bankAngle) > 0.5f && Mathf.Abs(bankAngle) < airAutoLevelMaxBank)
                         {
-                            var level = Quaternion.LookRotation(transform.forward, levelUp.normalized);
-                            transform.rotation = Quaternion.Slerp(transform.rotation, level, airAutoLevelRate * dt);
+                            Vector3 levelUp = refUpAxis;
+                            var level = Quaternion.LookRotation(fwdAxis, levelUp);
+                            // 指数收敛，帧率无关（旧写法 3f*dt 在 30fps 是 0.1、120fps 是 0.025，手感不一致）
+                            float autoK = 1f - Mathf.Exp(-airAutoLevelRate * dt);
+                            transform.rotation = Quaternion.Slerp(transform.rotation, level, autoK);
                         }
                     }
                 }
@@ -616,8 +689,48 @@ public class VehiclePhysics : MonoBehaviour
         speed = Mathf.MoveTowards(speed, targetSpeed, acceleration * 1.5f * dt);
 
         // ================= 位移 =================
+        Vector3 prevPos = transform.position;                 // 撞楼检测要从上一帧位置往前扫
         transform.position += transform.forward * speed * dt;
         ClampToBounds();
+
+        // ================= 撞楼 = 坠毁（2026-11-17 用户要求）=================
+        //
+        // 用户原话："飞机撞上去会死，坦克过不去"。
+        //
+        // 坦克那边一直有 IsBlockedByObstacle 挡着，但**飞机完全没有**：
+        // UpdateAir 只判"撞地"（pos.y < 地面+airCrashHeight），
+        // 撞楼因为楼顶在 y=40 而飞机在 y=200，地面判定永远不触发 ——
+        // 俯冲进楼的飞机**直接从楼里穿过去**（实测塞到楼正中心仍然活着）。
+        //
+        // 用 SphereCast 沿飞行方向扫一段距离（不是只测当前点）：
+        // 45 m/s 在 30 fps 下一帧就是 1.5 m，低帧率卡顿可能跨十几米，
+        // 只测点会漏掉中间那一帧。扫一段才抓得住。
+        //
+        // 排除项：地形（下面原有判定）／其他载具（VehicleCollision 管）／
+        //         自己身上的零件、刚发射的弹（否则开火瞬间把自己判死）
+        if (Mathf.Abs(speed) > 2f)
+        {
+            Vector3 flyDir = transform.forward * Mathf.Sign(speed);
+            float flyDist = Mathf.Abs(speed) * dt + airCrashRadius;
+            var hitsAir = UnityEngine.Physics.SphereCastAll(prevPos, airCrashRadius, flyDir,
+                              flyDist, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hitsAir.Length; i++)
+            {
+                var hc = hitsAir[i].collider;
+                if (hc == null) continue;
+                if (hc is TerrainCollider) continue;
+                if (hc.transform.IsChildOf(transform)) continue;
+                if (hc.GetComponentInParent<VehicleCombat>() != null) continue;
+                if (hc.GetComponentInParent<Projectile>() != null) continue;
+                if (hc.GetComponentInParent<Torpedo>() != null) continue;
+
+                stateText = "撞楼坠毁";
+                Debug.Log("[坠机] 撞上 obj=" + hc.name + " root=" + hc.transform.root.name +
+                          " 位置=" + prevPos.ToString("F1") + " 速度=" + speed.ToString("F0") + "m/s");
+                Crash();
+                return;
+            }
+        }
 
         pos = transform.position;
         if (pos.y > airCeiling)

@@ -5,11 +5,11 @@ using System.IO;
 /// <summary>
 /// 地形形状预览器：直接采样 BattlefieldTerrainBuilder.HeightWorld，输出一张晕渲图（PNG）。
 /// 用途：调山形/坡度时秒出结果，不用每次重建 4 块 4097 地形（那要 6 分钟）。
-/// 菜单：Tools/铁皮黎明/地形预览
+/// 菜单：Tools/最后校射/地形预览
 /// </summary>
 public static class TerrainPreview
 {
-    [MenuItem("Tools/铁皮黎明/地形预览（晕渲图，秒出）", false, 30)]
+    [MenuItem("Tools/最后校射/地形预览（晕渲图，秒出）", false, 30)]
     public static void Preview()
     {
         Render("D:/UnityProjects/Tank3D/work/shots/preview_shaded.png", 1024);
@@ -71,7 +71,7 @@ public static class TerrainPreview
     }
 
     /// <summary>坡度分布统计：哪部分地形各档载具能开。</summary>
-    [MenuItem("Tools/铁皮黎明/地形坡度统计", false, 31)]
+    [MenuItem("Tools/最后校射/地形坡度统计", false, 31)]
     public static void Stats()
     {
         int n1 = 0, n2 = 0, n3 = 0, wet = 0, total = 0;

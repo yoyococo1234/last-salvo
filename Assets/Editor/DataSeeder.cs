@@ -4,13 +4,13 @@ using System.Collections.Generic;
 
 /// <summary>
 /// 一键生成/刷新全部默认数据资产（幂等：已存在则更新数值，不重复创建）。
-/// 菜单：Tools/铁皮黎明/生成默认数据
+/// 菜单：Tools/最后校射/生成默认数据
 /// </summary>
 public static class DataSeeder
 {
     const string Root = "Assets/Data";
 
-    [MenuItem("Tools/铁皮黎明/生成默认数据")]
+    [MenuItem("Tools/最后校射/生成默认数据")]
     public static void SeedAll()
     {
         EnsureFolder("Assets/Data/Ammo");
@@ -23,7 +23,7 @@ public static class DataSeeder
 
         // ---------- 弹药 ----------
         // ⚠️ 这里的数值必须和 Assets/Data/Ammo/*.asset 的现值**逐字一致**。
-        // 否则谁跑一次「Tools/铁皮黎明/生成默认数据」，改过的穿深/倍率就被覆盖回旧值。
+        // 否则谁跑一次「Tools/最后校射/生成默认数据」，改过的穿深/倍率就被覆盖回旧值。
         var ap    = Ammo("ap",      "穿甲弹",    1.2f,  0.4f,  0.1f,  0.9f,  5,  260f, false, 12f);
         var he    = Ammo("he",      "高爆弹",    0.5f,  1.5f,  0.6f,  0.8f,  5,   60f);
         var heat  = Ammo("heat",    "破甲弹",    1.0f,  0.9f,  0.1f,  0.9f,  15, 400f, true);
@@ -68,32 +68,38 @@ public static class DataSeeder
         // ---------- 载具 ----------
         // 参数顺序：id, 名, 域, 价, 血, 装甲模式, 正/侧/背, 统一, 速度, 转向, 炮塔转速,
         //           功率kW, 质量t, 硬地阻力, 软地阻力, 涉水深度, 通行, 复活基础, 说明, 武器
-        Vehicle("land_light", "轻坦", Domain.Land, 160, 800, ArmorMode.Directional,
+        //
+        // ⚠️ 2026-11-19：**价格全部与资产对齐**（VP-P1 重定价 140/220/260/320/180/240）。
+        // 上一版这里还写着 160/200/220/180/160/200 —— 那是 P1 之前的旧价，
+        // 谁跑一次「生成默认数据」就会把六台车的定价全部打回旧值（`Vehicle()` 是无条件覆盖）。
+        Vehicle("land_light", "轻坦", Domain.Land, 140, 800, ArmorMode.Directional,
             0.95f, 1.10f, 1.30f, 0f, 18f, 90f, 60f,
             320f, 15f, 0.8f, 1.6f, 1.0f,
             TerrainType.Land | TerrainType.ShallowWater, 80, "快、皮薄，能爬 35° 陡坡", gun75, mgAa);
 
-        Vehicle("land_main", "主战坦克", Domain.Land, 200, 1200, ArmorMode.Directional,
+        Vehicle("land_main", "主战坦克", Domain.Land, 220, 1200, ArmorMode.Directional,
             0.70f, 0.90f, 1.10f, 0f, 12f, 60f, 45f,
             750f, 45f, 0.9f, 1.8f, 1.2f,
             TerrainType.Land | TerrainType.ShallowWater, 80, "均衡，能爬 29°", gun120, mgAa);
 
         // 重装坦克的 modelYawOffset 保持 0（2026-11-06 模型拆件后长轴已改成 +Z）。
         // 历史上这里写过 90（10-31 的旧模型长轴沿 +X），11-06 已废弃 —— 再写 90 会让炮塔歪 90°。
-        Vehicle("land_heavy", "重装坦克", Domain.Land, 220, 1600, ArmorMode.Directional,
+        Vehicle("land_heavy", "重装坦克", Domain.Land, 260, 1600, ArmorMode.Directional,
             0.60f, 0.80f, 1.05f, 0f, 8f, 40f, 30f,
             800f, 65f, 1.0f, 2.0f, 1.4f,
             TerrainType.Land | TerrainType.ShallowWater, 90, "正面极硬，只能爬 22°", gun130, mgAa);
 
-        // 2026-11-16 用户定：炮艇血量干脆给到 7000（海上霸主，舰炮 420 伤要打 ~17 发）。
-        // 注意这是**设计选择**，不是 7.14 缩放的残留 —— 坦克那 3 台已回到 800/1200/1600。
+        // 2026-11-16 用户定：炮艇血厚（海上霸主）。
+        // 2026-11-18 深夜 VP-P1「炮艇涨价 320 + 削血 4500」已落地到资产：
+        // 现价 320、血量 4500（舰炮 420 伤约 11 发）。**这里必须跟资产一致**。
+        // 注意坦克那 3 台已回到 800/1200/1600，不是 7.14 缩放的残留。
         // 第三把武器是 12.7mm 独立机枪（和陆战载具同一把 mg_aa），别漏。
-        Vehicle("sea_gunboat", "炮艇", Domain.Sea, 180, 7000, ArmorMode.Directional,
+        Vehicle("sea_gunboat", "炮艇", Domain.Sea, 320, 4500, ArmorMode.Directional,
             0.85f, 1.00f, 1.15f, 0f, 24f, 70f, 50f,
             1200f, 40f, 1.2f, 1.2f, 0.8f,
             TerrainType.ShallowWater | TerrainType.DeepWater, 80, "海上霸主，吃水 0.8m", naval, torpL, mgAa);
 
-        var fighter = Vehicle("air_fighter", "战斗机", Domain.Air, 160, 300, ArmorMode.Uniform,
+        var fighter = Vehicle("air_fighter", "战斗机", Domain.Air, 180, 300, ArmorMode.Uniform,
             1f, 1f, 1f, 1.00f, 45f, 120f, 0f,
             900f, 8f, 0f, 0f, 0f,
             TerrainType.Air, 80, "制空战斗机：机炮 + 空空导弹", gun20, misAa);
@@ -107,7 +113,7 @@ public static class DataSeeder
         // 射程只有 300 m，而攻击机巡航高度 220 m —— 射线长度 = 220/sin(俯角)，
         // 只有俯角 ≥ 47° 才够得着，正常对地俯角 20~40° 全部超出射程，实际打不中。
         // 资产留着（bombR 仍创建），要做真炸弹得先改成抛投下坠弹并提射程。
-        var attacker = Vehicle("air_attacker", "攻击机", Domain.Air, 200, 450, ArmorMode.Uniform,
+        var attacker = Vehicle("air_attacker", "攻击机", Domain.Air, 240, 450, ArmorMode.Uniform,
             1f, 1f, 1f, 1.10f, 32f, 80f, 0f,
             1100f, 12f, 0f, 0f, 0f,
             TerrainType.Air, 85, "对地攻击机：机炮 + 反坦克导弹", gun20, misAt);
@@ -137,9 +143,11 @@ public static class DataSeeder
         // 与 Match_Default.asset 现值一致（资产是 600，这里原来写 200 —— 跑一次 seeder 就把开局金币砍到 1/3）
         match.startingGold = 600;
         match.respawnBase = 80;
-        match.respawnGrowth = 1.22f;
-        match.swapGrowth = 1.15f;
-        match.swapGrowthCap = 3f;
+        // ⚠️ 2026-11-19：三个递增系数也要跟资产一致（11-18 经济系统重写成 1.05 / 1.05 / 封顶 1.5）。
+        // 这里原来还是 1.22 / 1.15 / 3.0 —— 跑一次 seeder 就把整局经济手感打回旧版。
+        match.respawnGrowth = 1.05f;
+        match.swapGrowth = 1.05f;
+        match.swapGrowthCap = 1.5f;
         match.killRewardRate = 0.40f;
         match.assistRewardRate = 0.20f;
         match.captureIncome = 15;
@@ -155,40 +163,32 @@ public static class DataSeeder
         EditorUtility.SetDirty(match);
 
         // ---------- 区域（v2：2000×2000 世界坐标，设计坐标 ×16.667）----------
-        // 中央 3 个点 15 金/10 秒；家门口 2 个点 5 金/10 秒（躺着收，但不够赢）
+        // 2026-11-17 经济调整：中央 3 个点 **8** 金/10 秒（原 15）；家门口 2 个点 3 金/10 秒（原 5）。
+        // 原因：两局模拟发现 15 金/点时，15 分钟理论收入 2700~4500，而支出只有首次出击 200，
+        // 缺口 10~20 倍 —— 金币完全失去意义。降到 8 之后一把能复活 8~9 次，收支才平衡。
         var zPort = Zone("zone_port", "港口海战", Domain.Sea, TerrainType.DeepWater,
-            new Rect(-350f, 217f, 700f, 700f), 15,
+            new Rect(-350f, 217f, 700f, 700f), 8,
             new[] { new Vector2(-667f, 500f), new Vector2(667f, 500f) });          // 设计 (0,34) r21
         // 2026-11-16：城区据点挪回陆地。Rect 的中心是 (x + w/2, y + h/2)，
         // 旧值 Rect(-417,-300,834,834) 的中心是 (0, +117)、北边缘 z=534，而岸线在 z≈292 —— 240 m 伸进海里。
         // 新值 Rect(-300,-330,600,600) 覆盖 z -330~270，全在陆地上。
         var zUrban = Zone("zone_urban", "城区巷战", Domain.Land, TerrainType.Land,
-            new Rect(-300f, -330f, 600f, 600f), 15,
+            new Rect(-300f, -330f, 600f, 600f), 8,
             new[] { new Vector2(-333f, 117f), new Vector2(333f, 117f) });          // 设计 (0,7) r25
         var zHill = Zone("zone_hill", "山地伏击", Domain.Land, TerrainType.Land,
-            new Rect(-200f, -950f, 400f, 400f), 15,
+            new Rect(-200f, -950f, 400f, 400f), 8,
             new[] { new Vector2(-500f, -750f), new Vector2(500f, -750f) });        // 设计 (0,-45) r12
         var zFlankL = Zone("zone_flank_left", "左翼平原", Domain.Land, TerrainType.Land,
-            new Rect(-950f, -333f, 400f, 400f), 5,
+            new Rect(-950f, -333f, 400f, 400f), 3,
             new[] { new Vector2(-233f, -133f) });                                  // 设计 (-45,-8) r12
         var zFlankR = Zone("zone_flank_right", "右翼平原", Domain.Land, TerrainType.Land,
-            new Rect(550f, -333f, 400f, 400f), 5,
+            new Rect(550f, -333f, 400f, 400f), 3,
             new[] { new Vector2(233f, -133f) });                                   // 设计 (45,-8) r12
 
         // ---------- AI ----------
-        var ai = GetOrCreate<AIDef>($"{Root}/AI/AI_Default.asset");
-        ai.visionRange = 120f;
-        ai.fireRange = 90f;
-        ai.thinkInterval = 0.5f;
-        ai.retreatHpPercent = 0.30f;
-        ai.accuracy = 0.70f;
-        ai.aggression = 0.60f;
-        ai.crossDomainHunting = false;
-        ai.crossDomainRetaliation = true;
-        ai.retaliationMemorySeconds = 5f;
-        ai.swapGoldThreshold = 1.2f;
-        ai.repairHpPercent = 0.40f;
-        EditorUtility.SetDirty(ai);
+        // 2026-11-17 删除：AIDef / Assets/Data/AI/AI_Default.asset 是**死代码** ——
+        // 运行时从来没有 Load 过它，AI 参数实际硬编码在 VehicleAI.cs 里，
+        // 经济行为由 AIDifficulty.cs 按难度生成。删掉避免"以为改资产就能调 AI"。
 
         // ---------- 战场（v2：2000×2000）----------
         var bf = GetOrCreate<BattlefieldDef>($"{Root}/Battlefield/Battlefield_Default.asset");

@@ -9,13 +9,13 @@ using System.IO;
 /// 否则缩放/朝向/材质会对不上（原来的设置：globalScale=1、useFileScale=1、isReadable=1、
 /// materialImportMode=2、animationType=None）。
 ///
-/// 菜单：Tools → 铁皮黎明 → ④d 废土建筑导入设置
+/// 菜单：Tools → 最后校射 → ④d 废土建筑导入设置
 /// </summary>
 public static class WastelandImport
 {
     const string Dir = "Assets/Models/Props/Lux3D";
 
-    [MenuItem("Tools/铁皮黎明/④d 废土建筑导入设置", false, 47)]
+    [MenuItem("Tools/最后校射/④d 废土建筑导入设置", false, 47)]
     public static void Apply()
     {
         int n = 0;

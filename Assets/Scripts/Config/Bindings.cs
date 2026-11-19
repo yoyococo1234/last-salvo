@@ -20,9 +20,30 @@ public static class Bindings
         Fire, Scope, FreeLook, SwitchWeapon, MgMode,
         LockOn, Shop, Pause, Garage, Decoy,
         LevelFlight,
+        // 2026-11-17：灵魂出窍（没车且买不起车时升空观战）。
+        // 注意这个键**在游戏内 HUD 上也会显示** —— 改了键，提示文字跟着变
+        // （见 SoulCamera.HintText 与 MatchHUD.DrawSoulHint）。
+        Soul,
+
+        // 2026-11-18 深夜（用户要求"把灵魂模式的按键设置也加入按键设置里面"）：
+        // 灵魂视角的飞行键单独成一组。默认值与驾驶键同键（WASD/Space/Shift/Alt），
+        // **允许同键** —— 灵魂模式里车是停着的，两组键物理上互斥，不会打架。
+        // 玩家也可以把它们改成别的键（例如方向键），改键时只与灵魂组内其它键判冲突。
+        SoulForward, SoulBack, SoulLeft, SoulRight,
+        SoulUp, SoulDown, SoulBoost,
+
         // 注意：2026-11-12 已删掉 Restart（重开一局）—— 改成按 P 暂停后在面板里选"是否重新开始"。
         // PlayerPrefs 的键名是 "Tank3D.Key." + 枚举名，不依赖枚举整数值，所以删掉是安全的。
     }
+
+    /// <summary>驾驶移动键（陆/海/空通用）。</summary>
+    public static bool IsDriveMove(Act a)
+        => a == Act.Forward || a == Act.Back || a == Act.Left || a == Act.Right;
+
+    /// <summary>灵魂视角的飞行键。</summary>
+    public static bool IsSoulMove(Act a)
+        => a == Act.SoulForward || a == Act.SoulBack || a == Act.SoulLeft || a == Act.SoulRight
+        || a == Act.SoulUp || a == Act.SoulDown || a == Act.SoulBoost;
 
     public struct Entry
     {
@@ -52,6 +73,18 @@ public static class Bindings
         // 2026-11-12：飞机姿态放开成 360° 自由之后，需要一条"倒飞失控时救命"的键。
         // 按住 = 机翼水平 + 机头压回水平，松手恢复自由操控。
         new Entry { act = Act.LevelFlight,  label = "一键改平（飞机）", def = KeyCode.F },
+        // 2026-11-17：灵魂出窍 / 观战（只在"没车且买不起车"时可用）
+        new Entry { act = Act.Soul,         label = "灵魂出窍（观战）", def = KeyCode.O },
+
+        // 2026-11-18 深夜：灵魂视角的飞行键也进按键设置（用户要求）。
+        // 默认和驾驶键同键，界面上写清"复用驾驶键"，玩家想改就改。
+        new Entry { act = Act.SoulForward,  label = "灵魂视角：前进",   def = KeyCode.W },
+        new Entry { act = Act.SoulBack,     label = "灵魂视角：后退",   def = KeyCode.S },
+        new Entry { act = Act.SoulLeft,     label = "灵魂视角：左移",   def = KeyCode.A },
+        new Entry { act = Act.SoulRight,    label = "灵魂视角：右移",   def = KeyCode.D },
+        new Entry { act = Act.SoulUp,       label = "灵魂视角：上升",   def = KeyCode.Space },
+        new Entry { act = Act.SoulDown,     label = "灵魂视角：下降",   def = KeyCode.LeftShift },
+        new Entry { act = Act.SoulBoost,    label = "灵魂视角：加速",   def = KeyCode.LeftAlt },
     };
 
     static Dictionary<Act, KeyCode> _map;
@@ -87,6 +120,10 @@ public static class Bindings
         foreach (var e in Table)
         {
             if (e.act == a) continue;
+            // 2026-11-18：灵魂飞行键与驾驶键**允许同键**。两组键互斥生效
+            // （没车时车不动、有车时不进灵魂视角），同键不会打架，
+            // 而默认值本来就故意设成一样（WASD/Space/Shift/Alt），不放过就没法初始化。
+            if ((IsDriveMove(a) && IsSoulMove(e.act)) || (IsSoulMove(a) && IsDriveMove(e.act))) continue;
             if (_map[e.act] == k) { conflict = e.act; return false; }
         }
         _map[a] = k;
@@ -94,6 +131,35 @@ public static class Bindings
         PlayerPrefs.Save();
         return true;
     }
+
+    /// <summary>
+    /// 键名的**界面显示名**（`LeftShift` → `Shift`，`Space` → `Space`）。
+    /// HUD 提示文字必须走这里 —— 否则玩家把键改掉了，提示还在写旧键名（2026-11-18 用户要求）。
+    /// </summary>
+    public static string Name(KeyCode k)
+    {
+        switch (k)
+        {
+            case KeyCode.LeftShift:
+            case KeyCode.RightShift: return "Shift";
+            case KeyCode.LeftAlt:
+            case KeyCode.RightAlt: return "Alt";
+            case KeyCode.LeftControl:
+            case KeyCode.RightControl: return "Ctrl";
+            case KeyCode.Space: return "Space";
+            case KeyCode.UpArrow: return "↑";
+            case KeyCode.DownArrow: return "↓";
+            case KeyCode.LeftArrow: return "←";
+            case KeyCode.RightArrow: return "→";
+            case KeyCode.Return: return "Enter";
+            case KeyCode.Tab: return "Tab";
+            case KeyCode.Escape: return "Esc";
+            default: return k.ToString();
+        }
+    }
+
+    /// <summary>某个动作当前键的显示名（HUD 提示直接用）。</summary>
+    public static string NameOf(Act a) => Name(Get(a));
 
     public static void ResetAll()
     {

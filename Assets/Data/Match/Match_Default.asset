@@ -24,9 +24,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 7d6f5e3a410f59846901be6d159ceed5, type: 2}
   startingGold: 600
   respawnBase: 80
-  respawnGrowth: 1.22
-  swapGrowth: 1.15
-  swapGrowthCap: 3
+  respawnGrowth: 1.05
+  swapGrowth: 1.05
+  swapGrowthCap: 1.5
   killRewardRate: 0.4
   assistRewardRate: 0.2
   captureIncome: 15

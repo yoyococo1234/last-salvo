@@ -23,10 +23,10 @@ using UnityEngine;
 /// </summary>
 public static class PropColliderFixer
 {
-    [MenuItem("Tools/铁皮黎明/④b 修细节物件碰撞（网格对网格）", false, 45)]
+    [MenuItem("Tools/最后校射/④b 修细节物件碰撞（网格对网格）", false, 45)]
     public static void FixAll() => FixAll(false);
 
-    [MenuItem("Tools/铁皮黎明/④c 物件网格置为可读（打包需要）", false, 46)]
+    [MenuItem("Tools/最后校射/④c 物件网格置为可读（打包需要）", false, 46)]
     public static void FixReadable() => FixAll(true);
 
     public static void FixAll(bool alsoMakeReadable)

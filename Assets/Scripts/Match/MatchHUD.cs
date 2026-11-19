@@ -12,7 +12,7 @@ public class MatchHUD : MonoBehaviour
     float _scale = 1f;
     float _vw = 1920f;
 
-    GUIStyle _s18, _s20, _s24, _s32, _s56;
+    GUIStyle _s15, _s18, _s20, _s24, _s32, _s56;
 
     static readonly Color CAlly = new Color(0.35f, 0.75f, 1f);
     static readonly Color CEnemy = new Color(1f, 0.42f, 0.35f);
@@ -23,6 +23,7 @@ public class MatchHUD : MonoBehaviour
     void EnsureStyles()
     {
         if (_s18 != null) return;
+        _s15 = Style(15, TextAnchor.MiddleLeft);
         _s18 = Style(18, TextAnchor.MiddleLeft);
         _s20 = Style(20, TextAnchor.MiddleLeft);
         _s24 = Style(24, TextAnchor.MiddleCenter);
@@ -34,6 +35,13 @@ public class MatchHUD : MonoBehaviour
     {
         var st = new GUIStyle(GUI.skin.label) { fontSize = size, alignment = anchor, richText = true };
         st.normal.textColor = Color.white;
+        // 2026-11-18 深夜用户反馈"会有字显示不清楚，一起改"。
+        // 根因：中文字行高 ≈ fontSize × 1.35，而 HUD 里大量地方给 18px 的字只留了 18~22px 的框，
+        // GUI.skin.label 默认 clipping = Clip，于是字被上下各切掉一截
+        // （金币面板那行「占点全队产金 · 胜利点 0/0」就是这么糊掉的）。
+        // 这里统一改成 Overflow：字永远完整，框高略欠时只会微微出框，不会被切。
+        // 同时下面几处关键面板把框加高/加宽，尽量不出框。
+        st.clipping = TextClipping.Overflow;
         return st;
     }
 
@@ -64,40 +72,62 @@ public class MatchHUD : MonoBehaviour
         DrawNamePlates(mm);       // 2026-11-11：名字牌（画在准星之前）
         DrawDamageDirection();    // 2026-11-11：挨打时的受击方向弧
         DrawCrosshair(mm);
+        DrawAirAttitude(mm);      // 2026-11-18：空战姿态仪（翻跟头时告诉你翻到哪了）
         // 2026-11-10：命中标记复活成准星处的四角斜线（击穿金色 / 未击穿·跳弹红色）。
         // 语音播报照旧（Sfx.VoRicochet / VoNonPen / VoPen），两者不冲突：语音给"听"，标记给"看"。
         DrawHitFeedback();
         DrawKillFx();             // 2026-11-16：玩家击毁目标的中央特效
         DrawGunBrokenAlert(mm);
+        DrawSoulHint();           // 2026-11-17：灵魂视角提示（没有载具时告诉你能干什么）
         if (mm.matchOver) DrawSettlement(mm);
 
         GUI.matrix = oldMatrix;
     }
 
-    // ---------------- 顶部：时间 + 击杀数 ----------------
+    // ---------------- 顶部：时间 + 胜利点（VP）+ 击杀数 ----------------
 
     void DrawTopBar(MatchManager mm)
     {
-        float w = 520f, h = 80f;
+        // 2026-11-18 深夜：96 → 106。原来底部那行「胜利点 · 先到 1500 …」
+        // 从 y=88 起、18px 高的框里塞 18px 中文，整行被切（用户"字显示不清楚"）。
+        float w = 560f, h = 106f;
         float x = _vw * 0.5f - w * 0.5f;
         Panel(new Rect(x, 12f, w, h));
 
         Text(new Rect(x, 16f, w, 30f), mm.TimeText, _s32, Color.white, TextAnchor.MiddleCenter);
 
-        Text(new Rect(x + 16f, 46f, w * 0.5f - 16f, 26f), $"我方击杀 <b>{mm.kills[0]}</b>", _s20, CAlly, TextAnchor.MiddleLeft);
-        Text(new Rect(x + w * 0.5f, 46f, w * 0.5f - 16f, 26f), $"<b>{mm.kills[1]}</b> 敌方击杀", _s20, CEnemy, TextAnchor.MiddleRight);
+        // 2026-11-17：胜负改成**胜利点（VP）赛跑**，所以 VP 放在最显眼的位置；
+        // 击杀数降成底部小字（它现在只是参考数据，不再决定胜负）。
+        int v0 = mm.Vp0, v1 = mm.Vp1, goal = Mathf.Max(1, mm.vpToWin);
+        Text(new Rect(x + 16f, 46f, w * 0.5f - 16f, 28f), $"我方 <b>{v0}</b>", _s20, CAlly, TextAnchor.MiddleLeft);
+        Text(new Rect(x + w * 0.5f, 46f, w * 0.5f - 16f, 28f), $"<b>{v1}</b> 敌方", _s20, CEnemy, TextAnchor.MiddleRight);
 
-        Text(new Rect(x, 94f, w, 22f), $"剩余命 我方 {mm.TeamLives(0)} / 敌方 {mm.TeamLives(1)}　·　在场 {mm.TeamAlive(0)} / {mm.TeamAlive(1)}",
-             _s18, new Color(1f, 1f, 1f, 0.5f), TextAnchor.MiddleCenter);
+        // VP 进度条：左半边我方、右半边敌方，从中间往外长
+        float barY = 74f, barH = 7f;
+        float midX = x + w * 0.5f;
+        float halfW = w * 0.5f - 24f;
+        Fill(new Rect(midX - halfW, barY, halfW * 2f, barH), new Color(1f, 1f, 1f, 0.10f));
+        float k0 = Mathf.Clamp01(v0 / (float)goal);
+        float k1 = Mathf.Clamp01(v1 / (float)goal);
+        if (k0 > 0.001f) Fill(new Rect(midX - halfW * k0, barY, halfW * k0, barH), new Color(CAlly.r, CAlly.g, CAlly.b, 0.92f));
+        if (k1 > 0.001f) Fill(new Rect(midX, barY, halfW * k1, barH), new Color(CEnemy.r, CEnemy.g, CEnemy.b, 0.92f));
+        Fill(new Rect(midX - 1f, barY - 2f, 2f, barH + 4f), new Color(1f, 1f, 1f, 0.55f));
+
+        Text(new Rect(x, 84f, w, 22f),
+             $"胜利点 · 先到 {goal}　·　在场 {mm.TeamAlive(0)}/{mm.TeamAlive(1)}　·　击杀 {mm.kills[0]}/{mm.kills[1]}",
+             _s18, new Color(1f, 1f, 1f, 0.55f), TextAnchor.MiddleCenter);
     }
 
     // ---------------- 左上：金币（个人） ----------------
 
     void DrawGold(MatchManager mm)
     {
-        Panel(new Rect(16f, 12f, 250f, 78f));
-        Text(new Rect(28f, 16f, 226f, 40f), $"<b>￥{mm.Gold}</b>", _s32, CGold, TextAnchor.MiddleLeft);
-        Text(new Rect(28f, 56f, 226f, 22f), $"我的命 {mm.LivesText} · 占点全队产金", _s18, new Color(1f, 1f, 1f, 0.5f), TextAnchor.MiddleLeft);
+        // 2026-11-18 深夜：面板 250×78 → 300×84。
+        // 原来第二行「占点全队产金 · 胜利点 0/0」在 226px 宽里放不下、22px 高又不够中文行高，
+        // 被切成了两截（用户截图：￥95 下面那行只剩半行）。
+        Panel(new Rect(16f, 12f, 300f, 84f));
+        Text(new Rect(28f, 14f, 272f, 40f), $"<b>￥{mm.Gold}</b>", _s32, CGold, TextAnchor.MiddleLeft);
+        Text(new Rect(28f, 56f, 272f, 24f), $"占点全队产金 · 胜利点 {mm.Vp0}/{mm.Vp1}", _s15, new Color(1f, 1f, 1f, 0.55f), TextAnchor.MiddleLeft);
         DrawGoldPops();     // 2026-11-10 金币变化浮字（差值在 Update 里算，这里只画）
     }
 
@@ -119,10 +149,11 @@ public class MatchHUD : MonoBehaviour
             var z = mm.zones[i];
             float y = y0 + 34f + i * rowH;
 
-            Text(new Rect(28f, y, 170f, 22f), z.DisplayName, _s18, Color.white, TextAnchor.MiddleLeft);
-            Text(new Rect(w - 78f, y, 62f, 22f), z.OwnerText, _s18, z.OwnerColor, TextAnchor.MiddleRight);
+            // 2026-11-18 深夜：文字框 22 → 26、进度条下移 24 → 28（18px 中文塞 22px 会被切）
+            Text(new Rect(28f, y, 170f, 26f), z.DisplayName, _s18, Color.white, TextAnchor.MiddleLeft);
+            Text(new Rect(w - 78f, y, 62f, 26f), z.OwnerText, _s18, z.OwnerColor, TextAnchor.MiddleRight);
 
-            var bar = new Rect(28f, y + 24f, w - 56f, 10f);
+            var bar = new Rect(28f, y + 28f, w - 56f, 10f);
             Fill(bar, new Color(1f, 1f, 1f, 0.12f));
             var teamColor = z.progressTeam == 0 ? CAlly : z.progressTeam == 1 ? CEnemy : CNeutral;
             Fill(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(z.progress), bar.height), teamColor);
@@ -139,11 +170,12 @@ public class MatchHUD : MonoBehaviour
 
         if (p == null || !p.Alive)
         {
-            Panel(new Rect(x, y, w, h));
-            Text(new Rect(x, y + 20f, w, 36f), "载具已损失", _s32, CEnemy, TextAnchor.MiddleCenter);
-            Text(new Rect(x, y + 62f, w, 26f),
-                mm.unlimitedLives ? "按 G 回车库换车" : (mm.LivesLeft > 0 ? "正在返回车库…" : "没有剩余部署机会"),
-                _s20, Color.white, TextAnchor.MiddleCenter);
+            // 2026-11-18 深夜用户第二次反馈"字有重叠"：
+            // 这块（VH-120 起、高 104）和 DrawSoulHint（VH-128 起、高 40）**条件完全相同**
+            // —— 都是"没车"。上次只挡了 SoulCamera.Active，玩家一按 O 退出（ManualHold，
+            // 不再是 Active 但依然没车），两行又叠回来了。
+            // 现在直接让位：没车时底部只留 DrawSoulHint 一条，信息在那边说全
+            // （那句"载具已损失"已并进它的文案）。
             return;
         }
 
@@ -338,6 +370,104 @@ public class MatchHUD : MonoBehaviour
             DrawSeg(new Vector2(x + Mathf.Cos(a0) * R, y + Mathf.Sin(a0) * R),
                     new Vector2(x + Mathf.Cos(a1) * R, y + Mathf.Sin(a1) * R), c, 2f);
         }
+    }
+
+    // ---------------- 空战姿态仪（2026-11-18）----------------
+    //
+    // 用户原话："我向上翻滚我不知道我翻滚成什么样了，一旦中途按 AD 或者鼠标飘动就很难回正"。
+    //
+    // 真问题不是翻滚本身做不出来，而是**空战视角跟着机身滚**：抬头翻过去以后，
+    // 画面里没有任何"哪边是下"的参照，玩家不知道自己现在是 90° 还是倒飞，
+    // 中途蹭到 A/D 或者鼠标一飘就彻底晕了。
+    //
+    // 所以这里补三样东西（都画在屏幕中心，跟准星一套坐标）：
+    //   ① 一条与**真实地平线平行**的参考线 —— 它跟世界滚，不跟机身滚，
+    //      所以"参考线 vs 机翼基准"的夹角就是你的坡度，一眼看出翻到哪了；
+    //   ② 固定的机翼基准（两道短横 + 中心点）—— 相当于仪表盘上那架小飞机；
+    //   ③ 状态字：倒飞 / 俯冲 / 垂直爬升 / 大坡度，并给出"按 F 改平"的提示。
+    void DrawAirAttitude(MatchManager mm)
+    {
+        if (Cursor.lockState != CursorLockMode.Locked) return;
+        if (IsScoped()) return;                       // 开镜时有自己的分划，别糊在一起
+        var p = mm.Player;
+        if (p == null || !p.Alive || p.Def == null || p.Def.domain != Domain.Air) return;
+        var vp = p.Physics;
+        var cam = Camera.main;
+        if (vp == null || cam == null) return;
+
+        Transform tr = vp.transform;
+        Vector3 fwd = tr.forward;
+
+        // 俯仰：机头相对水平面的夹角（+ 抬头）
+        float pitch = Mathf.Asin(Mathf.Clamp(fwd.y, -1f, 1f)) * Mathf.Rad2Deg;
+
+        // 坡度：绕机头轴的有符号角。项目里的约定是 **负 = 右坡度**（和 AngleAxis(-rollRate) 一致）
+        Vector3 refUp = Vector3.ProjectOnPlane(Vector3.up, fwd);
+        float bank = refUp.sqrMagnitude > 0.0001f
+            ? Vector3.SignedAngle(refUp.normalized, tr.up, fwd)
+            : 0f;
+
+        float cx = _vw * 0.5f, cy = VH * 0.5f;
+
+        // 🟢 2026-11-18 16:05 用户："按住 C 键的时候可以保留俯仰角，但是中间那两根线删了"。
+        // 环视（按住 C）时机位绕着飞机转，屏幕中心那套"人工地平线 + 机翼基准"已经没有参照意义
+        // （飞机在画面里不在中心、角度也任意），留着只是挡视线。
+        // 所以环视时**不画图形（横杆 + 机翼基准）**，只保留下面的俯仰/坡度数字。
+        bool freeLook = CameraFollow.FreeLookActive;
+        if (!freeLook)
+        {
+            // ---- ① 地平参考线（人工地平线的横杆）----
+            // ⚠️ 关键：它必须画**机身相对世界的姿态**，不能画"镜头上看到的地平线方向"。
+            //    镜头本身跟着机身滚 100%（airRollFollow=1.0），拿镜头方向画的话
+            //    就永远是一条水平线 —— 等于没画。
+            // 所以：横杆按**真实坡度**转（右坡度 → 右端翘起），再按**俯仰**上下平移
+            // （抬头 → 横杆往下走，和真飞机的地平仪一致）。
+            float a = bank * Mathf.Deg2Rad;                 // GUI 的 y 朝下，bank<0=右坡度 → 右端 y 变小 = 翘起 ✓
+            Vector2 sd = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            Vector2 perp = new Vector2(Mathf.Sin(a), -Mathf.Cos(a));   // 横杆法线，指向"天"（屏幕上方向）
+            float pitchShift = Mathf.Clamp(pitch * 3.2f, -190f, 190f);
+
+            Vector2 c0 = new Vector2(cx, cy + pitchShift);
+            float half = 170f, gap = 52f;
+            var cLine = new Color(0.55f, 0.85f, 1f, 0.55f);
+            DrawSeg(c0 - sd * half, c0 - sd * gap, cLine, 2f);
+            DrawSeg(c0 + sd * gap, c0 + sd * half, cLine, 2f);
+            // 两端各挂一根朝"天"的短须：一眼看出哪边是上
+            DrawSeg(c0 - sd * half, c0 - sd * half + perp * 14f, cLine, 2f);
+            DrawSeg(c0 + sd * half, c0 + sd * half + perp * 14f, cLine, 2f);
+            // 中间再画一小段"天/地分界"的短横，坡度大时不容易和机翼基准看混
+            DrawSeg(c0 - sd * 18f, c0 + sd * 18f, new Color(0.55f, 0.85f, 1f, 0.28f), 2f);
+
+            // ---- ② 机翼基准（固定不转，相当于仪表里那架小飞机）----
+            var cRef = new Color(1f, 0.88f, 0.35f, 0.95f);
+            Fill(new Rect(cx - 66f, cy - 1.5f, 38f, 3f), cRef);
+            Fill(new Rect(cx + 28f, cy - 1.5f, 38f, 3f), cRef);
+            Fill(new Rect(cx - 2f, cy - 2f, 4f, 4f), cRef);
+        }
+
+        // ---- ③ 状态字 ----
+        string state = "";
+        Color sc = Color.white;
+        if (Mathf.Abs(bank) > 135f) { state = "倒飞 · 按 F 改平"; sc = new Color(1f, 0.42f, 0.35f); }
+        else if (pitch < -45f) { state = $"俯冲 {Mathf.RoundToInt(-pitch)}° · 按 F 改平"; sc = new Color(1f, 0.55f, 0.35f); }
+        else if (pitch > 60f) { state = $"垂直爬升 {Mathf.RoundToInt(pitch)}°"; sc = new Color(0.72f, 1f, 0.72f); }
+        else if (Mathf.Abs(bank) > 55f) { state = $"坡度 {Mathf.RoundToInt(Mathf.Abs(bank))}°"; sc = new Color(1f, 0.85f, 0.4f); }
+        else if (Mathf.Abs(bank) > 8f)
+        {
+            // 小坡度：告诉玩家松手会不会自己回正（阈值读 VehiclePhysics，别写死）
+            bool willLevel = Mathf.Abs(bank) < vp.airAutoLevelMaxBank;
+            state = $"坡度 {Mathf.RoundToInt(Mathf.Abs(bank))}°" + (willLevel ? " · 松手自动回正" : " · 松手保持");
+            sc = new Color(1f, 0.85f, 0.4f);
+        }
+
+        if (state.Length > 0)
+            Text(new Rect(cx - 320f, cy + 78f, 640f, 34f), state, _s24, sc, TextAnchor.MiddleCenter);
+
+        // 数字一直显示：帮玩家建立"多少度是什么感觉"
+        string num = $"俯仰 {(pitch >= 0f ? "+" : "")}{Mathf.RoundToInt(pitch)}°    坡度 {Mathf.RoundToInt(Mathf.Abs(bank))}°" +
+                     (bank < -1f ? "右" : (bank > 1f ? "左" : ""));
+        Text(new Rect(cx - 320f, cy + 112f, 640f, 28f), num, _s20,
+             new Color(0.82f, 0.9f, 1f, 0.72f), TextAnchor.MiddleCenter);
     }
 
     void DrawSeg(Vector2 a, Vector2 b, Color c, float w)
@@ -802,7 +932,7 @@ public class MatchHUD : MonoBehaviour
 
         Text(new Rect(x, y + 110f, w, 30f), mm.resultText, _s20, WithA(new Color(1f, 1f, 1f, 0.8f), k), TextAnchor.MiddleCenter);
 
-        Text(new Rect(x, y + 170f, w, 34f), $"我方命 {mm.TeamLives(0)}　:　{mm.TeamLives(1)} 敌方命", _s32, WithA(Color.white, k), TextAnchor.MiddleCenter);
+        Text(new Rect(x, y + 170f, w, 34f), $"胜利点 {mm.Vp0}　:　{mm.Vp1}", _s32, WithA(Color.white, k), TextAnchor.MiddleCenter);
         Text(new Rect(x, y + 216f, w, 28f), $"我的金币 {mm.Gold}　·　剩余时间 {mm.TimeText}", _s20, WithA(CGold, k), TextAnchor.MiddleCenter);
 
         // 2026-11-11：把「按 R 重新开始」那行文字换成**可点按钮**（R 键照旧有效）。
@@ -1061,18 +1191,19 @@ public class MatchHUD : MonoBehaviour
 
         // 名字
         string name = v.Def != null && !string.IsNullOrEmpty(v.Def.displayName) ? v.Def.displayName : "未知";
-        Text(new Rect(box.x + 4f, box.y + 4f, W - 8f, 22f), name, _s18,
+        // 2026-11-18 深夜：22 → 24，距离行 18 → 22（18px 字塞 18px 框，距离数字被切成半截）
+        Text(new Rect(box.x + 4f, box.y + 3f, W - 8f, 24f), name, _s18,
              WithA(Color.white, 0.95f * alpha), TextAnchor.MiddleCenter);
 
         // 血条（自己的车看自己，敌人的车也看得到剩余血量——同《战雷》街机）
         float hp01 = v.maxHp > 0.01f ? Mathf.Clamp01(v.hp / v.maxHp) : 0f;
-        var bar = new Rect(box.x + 12f, box.y + 28f, W - 24f, 8f);
+        var bar = new Rect(box.x + 12f, box.y + 29f, W - 24f, 8f);
         Fill(bar, new Color(0f, 0f, 0f, 0.45f * alpha));
         Fill(new Rect(bar.x, bar.y, bar.width * hp01, bar.height),
              WithA(hp01 > 0.5f ? (enemy ? CEnemy : CAlly) : (hp01 > 0.22f ? CGold : CEnemy), alpha));
 
         // 距离
-        Text(new Rect(box.x + 4f, box.y + 37f, W - 8f, 18f), $"{Mathf.RoundToInt(dist)} m", _s18,
+        Text(new Rect(box.x + 4f, box.y + 36f, W - 8f, 22f), $"{Mathf.RoundToInt(dist)} m", _s18,
              WithA(Color.white, 0.62f * alpha), TextAnchor.MiddleCenter);
 
         // 指向目标的小三角（牌底到车顶的引导线），让人一眼对上是哪台车
@@ -1392,46 +1523,136 @@ public class MatchHUD : MonoBehaviour
         Fill(new Rect(px - 1.6f, py - 1.6f, 3.2f, 3.2f), new Color(1f, 1f, 1f, 0.95f));
     }
 
-    // ---------------- 击杀特效（2026-11-16 用户要求） ----------------
+    // ---------------- 灵魂视角提示（2026-11-17）----------------
 
+    /// <summary>
+    /// 没有载具时在底部给一行提示。
+    ///
+    /// 用户 17:55 纠正：灵魂出窍**只在"没车且买不起车"时**才给，
+    /// 是等待补偿，不是信息位。所以这里分三种文案：
+    ///   ① 已经在灵魂视角 —— 显示操作提示
+    ///   ② 没车但钱够了 —— 催你去出击（不给你升空）
+    ///   ③ 没车且钱不够 —— 告诉你差多少，并说明会自动升空
+    /// </summary>
+    void DrawSoulHint()
+    {
+        var mm = MatchManager.Instance;
+        if (mm == null) return;
+
+        bool noCar = mm.Player == null || !mm.Player.Alive;
+        if (!SoulCamera.Active && !noCar) return;
+
+        string line;
+        Color col;
+
+        if (SoulCamera.Active)
+        {
+            line = SoulCamera.HintText;
+            col = new Color(0.55f, 0.85f, 1f);
+        }
+        else if (SoulCamera.ManualHold)
+        {
+            // 2026-11-18：玩家刚按 O/Esc 退出（现在退出会直接进车库）。
+            // 这里只说他**现在**能做什么，键名全部读 Bindings —— 与按键设置里的实际绑定一致。
+            //
+            // 2026-11-18 深夜：**还没出击过**时不能说"载具已损失"（用户开局看到这句以为游戏判他坠毁）。
+            string kSoul = Bindings.NameOf(Bindings.Act.Soul);
+            string kGar = Bindings.NameOf(Bindings.Act.Garage);
+            string head = mm.HasDeployed ? "载具已损失 · " : "还没出击 · ";
+            line = head + $"<b>{kSoul}</b> 升空观战 · <b>{kGar}</b> 打开车库选车";
+            col = new Color(0.62f, 0.72f, 0.82f);
+        }
+        else
+        {
+            int cheapest = mm.CheapestPrice;
+            int gap = cheapest - mm.SpendableGold;
+            string kGar = Bindings.NameOf(Bindings.Act.Garage);
+            if (gap > 0)
+            {
+                // 买不起且没车时 SoulCamera 会自动升空，正常情况下走不到这里；
+                // 能走到说明刚好在手动退出的冷却里，所以只陈述状态、不教玩家按什么键。
+                line = $"没有载具 · 还差 <b>{gap}</b> 金 · 攒钱期间自动升空观战";
+                col = new Color(1f, 0.92f, 0.65f);
+            }
+            else
+            {
+                line = $"没有载具 · 已够买车（{cheapest} 金）· 按 <b>{kGar}</b> 回车库出击";
+                col = new Color(0.6f, 1f, 0.7f);
+            }
+        }
+
+        float w = 1000f;
+        float x = _vw * 0.5f - w * 0.5f;
+        float y = VH - 128f;
+
+        Panel(new Rect(x, y, w, 40f), new Color(0.02f, 0.03f, 0.05f, 0.82f));
+        Text(new Rect(x + 14f, y, w - 28f, 40f), line, _s18, col, TextAnchor.MiddleCenter);
+    }
+
+    // ---------------- 击杀提示（2026-11-18 重做） ----------------
+    //
+    // 旧版（11-16）：屏幕正中心 40 个点拼成的扩散环 + 36px 大字 + 1.22→1.0 缩放 + 1.1 秒淡出。
+    // 用户："击杀特效太难看了"。问题在于：糊（点阵圆环）、抢视线（大字+缩放）、
+    // 而且正好压在屏幕中心 —— 那里现在还有姿态仪和准星，三个东西打架。
+    //
+    // 重做参考的是主流射击游戏那一路"小而克制"的击杀提示：
+    //   · 位置放**屏幕上方**，不压准星（Valorant / Apex 都在顶部；COD 贴准星但极小）
+    //   · 一条细强调线 + 一行字，靠**字重和留白**分层次，不靠大字号、不靠爆发动画
+    //   · 进场 0.09 秒就到位（不能"飘"），停 0.6 秒，0.28 秒收掉
+    //   · 背后压一层**横向渐变托底**（中间深、两端化开），亮天空/暗地面都读得清
+    //   · 连杀用 ×N 追加到同一行，不重复弹第二条
+    //
+    // 细节：强调线从中心向两侧"扫开"，和托底一起构成"横幅"的骨架；
+    //       字用富文本混排（击毁 = 白粗体，目标名 = 冷灰），一眼分出主次。
     static float _killFxAt = -99f;
-    static string _killFxText = "";
+    static string _killFxVictim = "";
+    static int _killStreak;
+    static float _killStreakAt = -99f;
 
-    /// <summary>玩家亲手击毁一台载具时由 MatchManager 调用：屏幕中央来一发扩散环 + 击毁字样。</summary>
+    /// <summary>玩家亲手击毁一台载具时由 MatchManager 调用。</summary>
     public static void ShowKillFx(string victimName)
     {
-        _killFxAt = Time.unscaledTime;
-        _killFxText = string.IsNullOrEmpty(victimName) ? "击 毁" : ("击 毁  " + victimName);
+        float now = Time.unscaledTime;
+        _killStreak = (now - _killStreakAt < 3.5f) ? _killStreak + 1 : 1;   // 3.5 秒内连杀累加
+        _killStreakAt = now;
+        _killFxAt = now;
+        _killFxVictim = string.IsNullOrEmpty(victimName) ? "目标" : victimName;
     }
 
     void DrawKillFx()
     {
-        const float DUR = 1.1f;
+        const float DUR = 0.95f;
         float age = Time.unscaledTime - _killFxAt;
         if (age < 0f || age > DUR) return;
 
-        float k = age / DUR;
-        // 前 12% 快速淡入，之后一路淡出
-        float a = k < 0.12f ? (k / 0.12f) : (1f - Mathf.InverseLerp(0.12f, 1f, k));
-        float cx = _vw * 0.5f, cy = VH * 0.5f - 96f;
+        float inK = UiKit.Smooth(Mathf.Clamp01(age / 0.09f));             // 进场：0.09 秒到位
+        float outK = UiKit.Smooth(Mathf.Clamp01((age - 0.62f) / 0.28f));  // 收尾：0.62 秒后淡出
+        float a = inK * (1f - outK);
+        if (a <= 0.002f) return;
 
-        // 扩散环（40 个点拼一圈，往外飞散并变淡）
-        float r = Mathf.Lerp(24f, 104f, k);
-        var ringCol = new Color(1f, 0.42f, 0.20f, a * 0.9f);
-        for (int i = 0; i < 40; i++)
-        {
-            float ang = i / 40f * Mathf.PI * 2f;
-            float w = Mathf.Lerp(5f, 2f, k);
-            Fill(new Rect(cx + Mathf.Cos(ang) * r - w * 0.5f,
-                          cy + Mathf.Sin(ang) * r - w * 0.5f, w, w), ringCol);
-        }
+        float cx = _vw * 0.5f;
+        float cy = 156f + (1f - inK) * 10f - outK * 8f;   // 进场从下往上 10px，收尾再往上飘 8px
+        const float w = 380f;
 
-        // 字：先放大再回落
-        float sc = Mathf.Lerp(1.22f, 1f, Mathf.Clamp01(k * 3f));
-        var st = UiKit.Style(Mathf.RoundToInt(36f * sc), TextAnchor.MiddleCenter, true);
+        // ---- 托底：不要面板 ----
+        // 试过两种面板（整块矩形 = 像一条"工具栏"；10 条薄带做柔和衰减 = 能看见横向条纹），
+        // 都不如"只靠描边暗影 + 强调线"干净。文字本身加了 1.5px 暗影，亮天空下也读得清。
+
+        // ---- 细强调线：从中心向两侧扫开，压在字的上方 ----
+        float lw = UiKit.Smooth(Mathf.Clamp01(age / 0.16f)) * 190f;
+        Fill(new Rect(cx - lw, cy - 22f, lw * 2f, 2f), new Color(1f, 0.42f, 0.30f, 0.95f * a));
+
+        // ---- 一行字：击毁 + 目标名（+ 连杀 ×N），先描一层暗影保证亮天空下也读得清 ----
+        string s = "<b>击 毁</b>   <color=#CBD8E4>" + _killFxVictim + "</color>";
+        if (_killStreak > 1) s += "   <color=#FFD65A>×" + _killStreak + "</color>";
+
+        var st = UiKit.Style(26, TextAnchor.MiddleCenter, true);
         var old = GUI.color;
-        GUI.color = new Color(1f, 0.92f, 0.80f, a);
-        GUI.Label(new Rect(cx - 300f, cy - 24f, 600f, 48f), _killFxText, st);
+        var r0 = new Rect(cx - w * 0.5f, cy - 6f, w, 36f);
+        GUI.color = new Color(0f, 0f, 0f, 0.55f * a);
+        GUI.Label(new Rect(r0.x + 1.5f, r0.y + 1.5f, r0.width, r0.height), s, st);
+        GUI.color = new Color(1f, 1f, 1f, a);
+        GUI.Label(r0, s, st);
         GUI.color = old;
     }
 
@@ -1632,8 +1853,12 @@ public class MatchHUD : MonoBehaviour
 
             // 同时出现多条时按**固定槽位**错开一行（2026-11-11 改：原来用 List 下标，
             // 前面的到期删掉后后面的会跳 28 px）。起点 50 而不是 18：上浮 40 px 之后还要留在屏幕内。
-            float y = 50f + gp.slot * 28f - 40f * Smooth01(t);
-            Text(new Rect(280f, y, 240f, 32f), $"<b>{s}</b>", _s24, new Color(c.r, c.g, c.b, 1f - t * t), TextAnchor.MiddleLeft);
+            //
+            // 2026-11-18 深夜：金币面板从 250×78 变成 300×84，浮字起点 x=280 会**压在面板里**
+            // 的第二行文字上（用户截图：`-505` 盖着「胜利点 0/0」）。
+            // 起点挪到面板右侧外（324），并改成从 44 往上飘 34 px，绝不进面板内。
+            float y = 44f + gp.slot * 26f - 34f * Smooth01(t);
+            Text(new Rect(324f, y, 240f, 32f), $"<b>{s}</b>", _s24, new Color(c.r, c.g, c.b, 1f - t * t), TextAnchor.MiddleLeft);
         }
     }
 

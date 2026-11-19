@@ -112,6 +112,89 @@ public class VehicleAI : MonoBehaviour
         Drive();
         AimAndFire();
         TickDecoy();
+        TickSupply();
+    }
+
+    // ==================== 采购（2026-11-17 新增）====================
+    //
+    // 用户问："AI 队友对手会不会使用商店里面的物品？"
+    // 答案原来是**不会** —— AI 有金币但一分不花，受伤只会后撤，弹药打光也不补，
+    // 而玩家能按 TAB 修好再打。这里补上，并且**按难度分层**（见 AIDifficulty）。
+
+    float _nextSupplyAt;
+    float _lastRepairAt = -99f;
+    string _lastBuy = "";
+
+    /// <summary>上一次买了什么（调试/验收用）。</summary>
+    public string LastBuy => _lastBuy;
+
+    void TickSupply()
+    {
+        if (Time.time < _nextSupplyAt) return;
+        var prof = AIDifficulty.Of(Skill);
+        _nextSupplyAt = Time.time + prof.buyCooldown;
+
+        var mm = MatchManager.Instance;
+        if (mm == null || _self == null || _self.Def == null) return;
+
+        var u = mm.UnitOf(_self);
+        if (u == null) return;                  // 不是正规军（比如玩家控制的）就不买
+
+        float hpT = _self.hp / Mathf.Max(1f, _self.maxHp);
+
+        // ---- ① 模块修复包：炮管/弹药架/发动机/履带坏了，输出会掉一大截 ----
+        if (prof.buysModuleRepair && u.gold >= 100 + prof.moduleRepairKeepGold)
+        {
+            var mod = _self.GetComponent<VehicleModule>();
+            if (mod != null && (mod.IsBroken(ModuleKind.Gun)
+                             || mod.IsBroken(ModuleKind.AmmoRack)
+                             || mod.IsBroken(ModuleKind.Engine)
+                             || mod.IsBroken(ModuleKind.Tracks)))
+            {
+                if (mm.TrySpendFor(u, 100))
+                {
+                    _self.BuyModuleRepair();
+                    _lastBuy = "模块修复";
+                    StateText = "修模块";
+                    return;
+                }
+            }
+        }
+
+        // ---- ② 维修包：血量低到该档阈值就买 ----
+        if (hpT < prof.repairBelowHp && u.gold >= 120 + prof.repairKeepGold)
+        {
+            if (mm.TrySpendFor(u, 120))
+            {
+                _self.BuyHeal(0.30f);
+                _lastRepairAt = Time.time;
+                _lastBuy = "维修包";
+                StateText = "买维修";
+                return;
+            }
+        }
+
+        // ---- ③ 弹药补给：主力武器备弹见底就补 ----
+        int cap = _self.CurrentAmmoCapacity;
+        if (cap > 0)
+        {
+            int left = _self.CurrentAmmoLeft;
+            if (left >= 0 && left <= Mathf.CeilToInt(cap * prof.ammoRefillBelow))
+            {
+                int price = _self.Def.domain == Domain.Air ? 90
+                          : _self.Def.domain == Domain.Sea ? 70 : 60;
+                if (u.gold >= price + prof.ammoKeepGold)
+                {
+                    if (mm.TrySpendFor(u, price))
+                    {
+                        _self.BuyAmmoRefill();
+                        _lastBuy = "弹药补给";
+                        StateText = "补弹";
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     // ==================== 干扰弹（2026-11-16 用户要求）====================
@@ -174,13 +257,17 @@ public class VehicleAI : MonoBehaviour
     {
         Target = FindTarget();
 
-        bool lowHp = _self.hp / Mathf.Max(1f, _self.maxHp) < retreatHpRatio;
+        // 后撤阈值现在跟难度走（轻松跑得早、原版更能扛）。
+        // 刚买完维修包的话不再后撤，直接回身再战（否则修了也白修，还是一路跑）。
+        var prof = AIDifficulty.Of(Skill);
+        bool justRepaired = Time.time - _lastRepairAt < 6f;
+        bool lowHp = !justRepaired && _self.hp / Mathf.Max(1f, _self.maxHp) < prof.retreatHp;
         if (lowHp)
         {
             StateText = "后撤";
             Vector3 away = Target != null ? transform.position - Target.transform.position : Vector3.back;
             away.y = 0f;
-            _goal = transform.position + (away.sqrMagnitude > 1f ? away.normalized * 150f : Vector3.zero);
+            _goal = transform.position + (away.sqrMagnitude > 1f ? away.normalized * prof.retreatDistance : Vector3.zero);
             return;
         }
 
@@ -221,27 +308,84 @@ public class VehicleAI : MonoBehaviour
     }
 
     /// <summary>
-    /// 选下一个要去的地方：最近的、还不属于自己队的资源点。
-    /// 找不到就退回 objective，再退回地图中心。
-    /// 2026-11-07：不再按 domain 过滤 —— 飞机也能占点（用户要求）。
+    /// 选下一个要去的地方。
+    ///
+    /// ============ 2026-11-17 重写：分头抢点 ============
+    ///
+    /// 用户原话："修 AI 抢点，有上山的有进城的"
+    ///
+    /// **旧逻辑的毛病**：每台 AI 都选「离自己最近的未占点」——
+    /// 同一队 5 台车出生点接近，算出来的最近点也是同一个，
+    /// 于是 5 台车浩浩荡荡开向同一个点，另外两个点永远没人管。
+    /// 两局模拟里第 1 局就是这样：双方各占 1 点、中立点臭在那儿没人要，VP 只涨到 886。
+    ///
+    /// **新逻辑**：
+    ///   1. **按编号分摊**：拿 UnitState.index 对候选点取模，每台 AI 认领一个"自己的点"
+    ///   2. **域匹配优先**：船优先去海点（港口），坦克优先去陆点（城区/山地），
+    ///      飞机什么点都能去 —— 否则炮艇会傻乎乎地往内陆山上开（根本开不上去）
+    ///   3. **自己的点被占了就顺延**：沿排序找下一个不属于我方的点
+    ///   4. **进点后散开**：按编号用黄金角在点内画圈站位，避免 5 台车挤在正中央互相别车
+    ///   5. **全占了就回防**：去离自己最近的己方点守
     /// </summary>
     Vector3 ChooseGoal()
     {
         var mm = MatchManager.Instance;
-        if (captureZones && mm != null && _self != null && _self.Def != null)
+        if (!captureZones || mm == null || _self == null || _self.Def == null || mm.zones.Count == 0)
+            return objective != null ? objective.position : Vector3.zero;
+
+        // ---- 自己的编号（同队里第几台），用来分摊目标点 ----
+        int myIdx = 0;
+        var me = mm.UnitOf(_self);
+        if (me != null) myIdx = me.index;
+
+        // ---- 按 id 排序，保证同队每台 AI 看到的顺序完全一致 ----
+        // 不排序的话 Dictionary/List 的遍历顺序在不同实例上可能不同，
+        // 同一队会算出互相矛盾的分工，等于没分。
+        var sorted = new List<ZoneState>(mm.zones.Count);
+        foreach (var z in mm.zones)
+            if (z != null && z.def != null) sorted.Add(z);
+        sorted.Sort((a, b) => string.CompareOrdinal(a.def.id, b.def.id));
+        if (sorted.Count == 0)
+            return objective != null ? objective.position : Vector3.zero;
+
+        // ---- 候选：还不属于我方的点，域匹配的排前面 ----
+        var cand = new List<ZoneState>(sorted.Count);
+        foreach (var z in sorted) if (z.owner != _self.Team) cand.Add(z);
+
+        if (cand.Count > 0)
         {
-            ZoneState best = null;
-            float bestD = float.MaxValue;
-            foreach (var z in mm.zones)
-            {
-                if (z == null || z.def == null) continue;
-                if (z.owner == _self.Team) continue;              // 自己队的不用抢
-                var c = new Vector3(z.def.bounds.center.x, 0f, z.def.bounds.center.y);
-                float d = Vector3.Distance(transform.position, c);
-                if (d < bestD) { bestD = d; best = z; }
-            }
-            if (best != null)
-                return new Vector3(best.def.bounds.center.x, 0f, best.def.bounds.center.y);
+            // 域匹配 = 同一个 Domain（船↔海点、坦克↔陆点）。飞机不挑。
+            var same = new List<ZoneState>(cand.Count);
+            foreach (var z in cand)
+                if (z.def.domain == _self.Def.domain) same.Add(z);
+
+            var list = same.Count > 0 ? same : cand;
+            int pickIdx = ((myIdx % list.Count) + list.Count) % list.Count;
+            var pick = list[pickIdx];
+
+            var c = pick.def.bounds.center;
+            // 点内散开：黄金角 137.5° 能让任意数量的车都散得比较均匀
+            float r = Mathf.Min(pick.def.bounds.width, pick.def.bounds.height) * 0.22f;
+            float ang = myIdx * 137.5f * Mathf.Deg2Rad;
+            return new Vector3(c.x + Mathf.Cos(ang) * r, 0f, c.y + Mathf.Sin(ang) * r);
+        }
+
+        // ---- 全是我们的点了 → 回防，去最近的己方点 ----
+        ZoneState home = null;
+        float bestD = float.MaxValue;
+        foreach (var z in sorted)
+        {
+            if (z.owner != _self.Team) continue;
+            var c = new Vector3(z.def.bounds.center.x, 0f, z.def.bounds.center.y);
+            float d = Vector3.Distance(transform.position, c);
+            if (d < bestD) { bestD = d; home = z; }
+        }
+        if (home != null)
+        {
+            var c = home.def.bounds.center;
+            float r = Mathf.Min(home.def.bounds.width, home.def.bounds.height) * 0.22f;
+            float ang = myIdx * 137.5f * Mathf.Deg2Rad;
+            return new Vector3(c.x + Mathf.Cos(ang) * r, 0f, c.y + Mathf.Sin(ang) * r);
         }
 
         return objective != null ? objective.position : Vector3.zero;
@@ -586,14 +730,21 @@ public class VehicleAI : MonoBehaviour
 
         if (!HasLineOfSight(_phys.GetMuzzlePosition(), aim, Target)) return;   // 被地形挡住
 
-        // 飞机对地面/海面目标：副武器（炸弹）在射程内就优先扔
+        // 飞机对地面/海面目标：副武器（炸弹/反坦克导弹）在射程内就优先扔。
+        // ⚠️ 必须检查这把副武器**对地有没有效**：战斗机的副武器是空空导弹（vsArmor 0.2），
+        // 拿去砸坦克纯属浪费唯一一发弹药（2026-11-17 待办 #7）。
         var sec = _self.Secondary;
         if (sec != null && _self.Def != null && _self.Def.domain == Domain.Air
             && Target.Def != null && Target.Def.domain != Domain.Air
             && dist <= sec.range)
         {
-            _self.FireSecondary(aim);
-            return;
+            var secAmmo = _self.AmmoFor(sec);
+            if (VehicleCombat.AmmoMultiplierVs(secAmmo, Target.Def) >= 0.3f)
+            {
+                _self.FireSecondary(aim);
+                return;
+            }
+            // 对地无效（如空空导弹）：不要打，也别 return —— 落到下面继续用机炮。
         }
 
         if (dist > EffectiveFireRange) return;

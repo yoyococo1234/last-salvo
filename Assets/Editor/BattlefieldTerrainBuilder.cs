@@ -19,7 +19,7 @@ using UnityEngine.Rendering;
 /// 缩放：设计坐标（战场设计.md 的 ±60 坐标系）→ 世界坐标 = 设计坐标 × 16.667。
 ///   高度也按同一比例放大，所以所有坡度角度与 120 m 设计版完全一致，载具爬坡参数不用重调。
 ///
-/// 菜单：Tools/铁皮黎明/① 生成正式战场地形（2000×2000）
+/// 菜单：Tools/最后校射/① 生成正式战场地形（2000×2000）
 /// </summary>
 public static class BattlefieldTerrainBuilder
 {
@@ -50,7 +50,7 @@ public static class BattlefieldTerrainBuilder
 
     // ================= 入口 =================
     /// <summary>菜单入口：一次性建完（4 块 tile 约 3~6 分钟，编辑器会卡住，属正常）。</summary>
-    [MenuItem("Tools/铁皮黎明/① 生成正式战场地形（2000×2000）", false, 10)]
+    [MenuItem("Tools/最后校射/① 生成正式战场地形（2000×2000）", false, 10)]
     public static void BuildAll()
     {
         SetupScene();
@@ -60,7 +60,7 @@ public static class BattlefieldTerrainBuilder
     }
 
     /// <summary>第一步：建数据资产、地表层、4 块地形、水面、灯光、相机，并落盘场景。</summary>
-    [MenuItem("Tools/铁皮黎明/①a 建场景骨架（快）", false, 11)]
+    [MenuItem("Tools/最后校射/①a 建场景骨架（快）", false, 11)]
     public static void SetupScene()
     {
         EnsureFolders();
@@ -110,7 +110,7 @@ public static class BattlefieldTerrainBuilder
     }
 
     /// <summary>只重建地表贴图（调 splat 规则时用）。</summary>
-    [MenuItem("Tools/铁皮黎明/①b 只重建地表贴图（全部）", false, 12)]
+    [MenuItem("Tools/最后校射/①b 只重建地表贴图（全部）", false, 12)]
     public static void RebuildSplats()
     {
         for (int t = 0; t < Tiles * Tiles; t++)
@@ -737,10 +737,10 @@ public static class BattlefieldTerrainBuilder
 
     static void CreateWater()
     {
-        var shader = Shader.Find("铁皮黎明/Water");
+        var shader = Shader.Find("最后校射/Water");
         if (shader == null)
         {
-            Debug.LogWarning("[BattlefieldTerrain] 找不到 铁皮黎明/Water 着色器，退回 Standard");
+            Debug.LogWarning("[BattlefieldTerrain] 找不到 最后校射/Water 着色器，退回 Standard");
             shader = Shader.Find("Standard");
         }
 

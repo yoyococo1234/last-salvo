@@ -23,7 +23,7 @@ MonoBehaviour:
     width: 600
     height: 600
   captureable: 1
-  incomePerTick: 15
+  incomePerTick: 8
   coinBoxPoints:
   - {x: -333, y: 117}
   - {x: 333, y: 117}

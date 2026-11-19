@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 /// <summary>
 /// 细节物件撒点：城区建筑 / 树 / 岩石 / 灌木 / 路障，按 v2 分区规则自动摆。
-/// 菜单：Tools/铁皮黎明/③ 撒细节物件
+/// 菜单：Tools/最后校射/③ 撒细节物件
 ///
 /// 规则（设计坐标）：
 ///   建筑 → 城区带 z 0~14、|x|<46，避开路面
@@ -56,7 +56,7 @@ public static class PropScatter
         // 原来这里是 Kenney 生存包的木箱/油桶/栅栏，摆在战场上像一堆纸箱子 —— 先清掉
     };
 
-    [MenuItem("Tools/铁皮黎明/③ 撒细节物件（建筑/树/石）", false, 40)]
+    [MenuItem("Tools/最后校射/③ 撒细节物件（建筑/树/石）", false, 40)]
     public static void Scatter()
     {
         var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);

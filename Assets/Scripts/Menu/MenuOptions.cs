@@ -36,13 +36,13 @@ public static class MenuOptions
         y = Stepper(lx, y, lw, "初始金币", MatchSettings.StartingGold.ToString(),
             () => MatchSettings.StartingGold -= 100, () => MatchSettings.StartingGold += 100, mouse, "gold");
 
-        // ---- 飞机开局就开放 ----
-        y = Toggle(lx, y, lw, "飞机开局就开放", MatchSettings.AirFromStart,
-            "关：开局只有陆战和海战，飞机到点才开放（默认）", mouse, "airfromstart");
-
         // ---- 海空解锁时间 ----
+        // 2026-11-18 深夜用户要求：**删掉上面那个「飞机开局就开放」开关**。
+        // 它和这条控制的是同一件事（一个说"开局就开"、一个说"N 分钟后开"），
+        // 两个摆在一起玩家根本不知道以谁为准。现在只留这一条：设 0 = 开局全开。
         y = Stepper(lx, y, lw, "空战解锁时间（分钟）", MatchSettings.UnlockMinutes == 0 ? "开局全开" : MatchSettings.UnlockMinutes + " 分钟",
             () => MatchSettings.UnlockMinutes -= 1, () => MatchSettings.UnlockMinutes += 1, mouse, "unlock");
+        UiKit.Label(new Rect(lx, y - 12f, lw, 18f), "设「开局全开」= 飞机从第一秒就能选", 13, UiKit.Dim, TextAnchor.MiddleLeft);
 
         // ---- AI 强度 ----
         UiKit.Label(new Rect(lx, y + 6f, lw, 24f), "AI 强度", 17, UiKit.Desc, TextAnchor.MiddleLeft);
@@ -63,6 +63,43 @@ public static class MenuOptions
             }
         }
         y += 52f;
+
+        // ---- 积分上涨倍率（2026-11-17 用户要求）----
+        // 两局模拟发现 VP 速率方差极大：占 3 点 9.8 分钟到 1500、各占 1 点 15 分钟只到 886。
+        // 与其我猜一个值，不如让玩家自己调 —— 想快节奏就调高，想慢就调低。
+        //
+        // 2026-11-18 深夜用户报「极快和右边重叠」：
+        // 原来标签占左边 200、按钮从 lx+200 起每个 62 宽 → 6 个到 lx+572，
+        // 而左列宽度只有 500，最后一个「极快」**直接压进右栏的人数表**。
+        // 现在改成标签独占一行、按钮从 lx 起铺满左列：6 × 74 + 5 × 6 = 474 ≤ 500。
+        UiKit.Label(new Rect(lx, y + 2f, lw, 24f), "积分上涨倍率", 17, UiKit.Desc, TextAnchor.MiddleLeft);
+        y += 26f;
+        for (int i = 0; i < MatchSettings.VpRateSteps.Length; i++)
+        {
+            bool on = Mathf.Abs(MatchSettings.VpRateMul - MatchSettings.VpRateSteps[i]) < 0.001f;
+            var r = new Rect(lx + i * 80f, y, 74f, 32f);
+            var h = UiKit.Button("vprate_" + i, r, mouse, true);
+            UiKit.Box(r, on ? new Color(1f, 0.84f, 0.35f, 0.28f)
+                            : Color.Lerp(new Color(1f, 1f, 1f, 0.03f), new Color(1f, 1f, 1f, 0.10f), h.hover01));
+            UiKit.Frame(r, on ? UiKit.Gold : UiKit.Edge);
+            UiKit.Label(r, MatchSettings.VpRateNames[i], 14, on ? UiKit.Gold : UiKit.Desc, TextAnchor.MiddleCenter, on);
+            if (h.clicked)
+            {
+                MatchSettings.VpRateMul = MatchSettings.VpRateSteps[i];
+                Save("积分上涨倍率：" + MatchSettings.VpRateNames[i]);
+            }
+        }
+        // 倍率说明：显示"多少分钟到 1500"
+        {
+            float mul = MatchSettings.VpRateMul;
+            // 3 点全占时：3 点 × 1 VP/s × mul = 3×mul VP/s
+            float secToWin3 = 1500f / Mathf.Max(0.01f, 3f * mul);
+            float secToWin1 = 1500f / Mathf.Max(0.01f, 1f * mul);
+            UiKit.Label(new Rect(lx, y + 36f, lw, 20f),
+                $"×{mul:F2}　·　占满 3 点约 {secToWin3 / 60f:F1} 分钟到 1500　·　只占 1 点约 {secToWin1 / 60f:F1} 分钟",
+                13, UiKit.Dim, TextAnchor.MiddleLeft);
+        }
+        y += 62f;
 
         // 提示
         UiKit.Label(new Rect(lx, y, lw, 60f),
@@ -150,26 +187,8 @@ public static class MenuOptions
         return y + 46f;
     }
 
-    static float Toggle(float x, float y, float w, string label, bool on, string note,
-        Vector2 mouse, string id)
-    {
-        UiKit.Label(new Rect(x, y + 6f, w - 200f, 24f), label, 17, UiKit.Desc, TextAnchor.MiddleLeft);
-
-        var r = new Rect(x + w - 120f, y + 2f, 120f, 34f);
-        var h = UiKit.Button(id, r, mouse, true);
-        UiKit.Box(r, on ? new Color(0.35f, 0.75f, 1f, 0.28f) : new Color(1f, 1f, 1f, 0.05f));
-        UiKit.Frame(r, on ? UiKit.Ally : UiKit.Edge);
-        UiKit.Label(r, on ? "开放" : "关闭", 15, on ? UiKit.Ally : UiKit.Mute, TextAnchor.MiddleCenter, true);
-        if (h.clicked)
-        {
-            bool v = !MatchSettings.AirFromStart;
-            MatchSettings.AirFromStart = v;
-            Save(label + "：" + (v ? "开放" : "关闭"));
-        }
-
-        UiKit.Label(new Rect(x, y + 30f, w, 20f), note, 13, UiKit.Dim, TextAnchor.MiddleLeft);
-        return y + 62f;
-    }
+    // 2026-11-18 深夜：`Toggle()` 方法与「飞机开局就开放」开关一起删掉了
+    // （那个开关和「空战解锁时间」重复，用户要求只留后者）。
 
     static void CountBox(float x, Rect row, int team, int typeIdx, Vector2 mouse)
     {

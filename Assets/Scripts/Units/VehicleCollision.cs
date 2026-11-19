@@ -55,7 +55,18 @@ public class VehicleCollision : MonoBehaviour
 
     void Update()
     {
-        if (_self == null || !_self.Alive || _col == null) return;
+        if (_self == null || !_self.Alive) return;
+
+        // 2026-11-18 深夜（用户："舰艇和对面的舰艇碰撞有问题，应该是我和对面碰撞扣一些血，碰己方弹开"）：
+        // **根因是 `_col` 一直是 null**。根节点的 BoxCollider 不是预制体自带的，
+        // 而是 `VehicleCombat.EnsureHitCollider()` 在 **Start()** 里 `AddComponent<BoxCollider>()` 现建的
+        // （它的注释写着：Awake 时 GetComponentsInChildren<MeshFilter>() 还拿不到网格，会静默失败）。
+        // 而本组件的 Awake 比那更早执行 → `_col == null` → Update 第一行就 return，
+        // **整套"撞敌扣血 + 弹开"从来没跑过一次**。
+        // 修法：懒加载，每帧补一次（拿到就缓存，不重复 GetComponent）。
+        if (_col == null) _col = GetComponent<Collider>();
+        if (_col == null) return;
+
         if (Time.time < _next) return;
         _next = Time.time + 0.08f;
 
@@ -105,12 +116,14 @@ public class VehicleCollision : MonoBehaviour
             var ov = other.GetComponent<VehiclePhysics>();
             float rel = 0f;
             if (_phys != null && ov != null) rel = (_phys.Velocity - ov.Velocity).magnitude;
-            if (rel < ramMinSpeed) return;
 
             // 队友之间只顶开、弹开，**不扣血**（用户 2026-11-05 定：撞队友掉血不合理）
             bool friendly = other.team == _self.team;
 
-            if (!friendly && Time.time >= _nextDamage)
+            // 2026-11-18 深夜：原来这里有一句 `if (rel < ramMinSpeed) return;` ——
+            // 它在**弹开之前**，导致"慢速蹭一下队友"既不扣血也不弹开，两辆车就那么贴着走。
+            // 用户要求的是"碰己方弹开"，所以速度阈值现在只管**扣血**，弹开无条件执行。
+            if (!friendly && rel >= ramMinSpeed && Time.time >= _nextDamage)
             {
                 _nextDamage = Time.time + damageCooldown;
                 float dmg = Mathf.Min(rel * ramDamagePerSpeed,
@@ -122,7 +135,8 @@ public class VehicleCollision : MonoBehaviour
             // ---------- 4. 弹开：反向冲量 + 压前进速度 ----------
             // 这一步是用户要的"扣血之后弹开"：不弹的话两条船会一直贴在一起，
             // 顶开速度又慢，看着就是"卡在里面"。
-            float bounce = Mathf.Min(rel * bouncePerSpeed, bounceMax);
+            // 慢速蹭也至少给 ramMinSpeed 那么多冲量，保证能分开。
+            float bounce = Mathf.Min(Mathf.Max(rel, ramMinSpeed) * bouncePerSpeed, bounceMax);
             if (_phys != null)
             {
                 _phys.ApplyKnockback(n * bounce);

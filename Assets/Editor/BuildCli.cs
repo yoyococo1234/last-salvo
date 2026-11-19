@@ -9,7 +9,7 @@ using System.IO;
 /// 为什么需要它：MCP 编辑器插件在长时间会话里会反复掉线，`script-execute` 调不动。
 /// 这条路不依赖编辑器连接 —— 关掉 GUI 编辑器后直接：
 ///
-///   set TANK3D_BUILD_DIR=D:\Builds\Tank3D_Win_20261112g
+///   set TANK3D_BUILD_DIR=D:\Builds\LastSalvo_Win_20261118k
 ///   Unity.exe -batchmode -quit -projectPath D:\UnityProjects\Tank3D ^
 ///             -executeMethod BuildCli.BuildWindows -logFile D:\Builds\build.log
 ///
@@ -19,10 +19,14 @@ public static class BuildCli
 {
     const string Scene = "Assets/Scenes/Map_Battlefield.unity";
 
+    // 2026-11-18 改名：铁皮黎明 → 最后校射 / Last Salvo
+    const string ExeName = "LastSalvo";
+    const string DefaultDir = "D:/Builds/LastSalvo_Win";
+
     public static void BuildWindows()
     {
         string outDir = System.Environment.GetEnvironmentVariable("TANK3D_BUILD_DIR");
-        if (string.IsNullOrEmpty(outDir)) outDir = "D:/Builds/Tank3D_Win";
+        if (string.IsNullOrEmpty(outDir)) outDir = DefaultDir;
         Directory.CreateDirectory(outDir);
 
         // 先打印一份"海平面 / 水域"体检，方便确认抬升效果（读日志即可）
@@ -31,7 +35,7 @@ public static class BuildCli
         var opts = new BuildPlayerOptions
         {
             scenes = new[] { Scene },
-            locationPathName = outDir + "/Tank3D.exe",
+            locationPathName = outDir + "/" + ExeName + ".exe",
             target = BuildTarget.StandaloneWindows64,
             options = BuildOptions.None,
         };
@@ -42,6 +46,79 @@ public static class BuildCli
         Debug.Log(msg);
 
         // batchmode 的退出码：失败时返回非 0，方便外面判断
+        if (Application.isBatchMode)
+            EditorApplication.Exit(s.result == BuildResult.Succeeded ? 0 : 1);
+    }
+
+    /// <summary>
+    /// WebGL 命令行打包（2026-11-19 加，给黑客松提交用）。
+    ///
+    ///   set TANK3D_BUILD_DIR=D:\Builds\LastSalvo_WebGL
+    ///   Unity.exe -batchmode -quit -projectPath D:\UnityProjects\Tank3D ^
+    ///             -executeMethod BuildCli.BuildWebGL -logFile D:\Builds\webgl.log
+    ///
+    /// 注意：WebGL 在编辑器里跑不了 Play，只能出包后拿浏览器验。
+    /// 这个工程的体积大头是地形（4 张 75.7 MB 的 TerrainData）+ 模型，
+    /// 首包会比较大 —— 日志里会打印实际大小，超过 200 MB 就得考虑压资源。
+    /// </summary>
+    public static void BuildWebGL()
+    {
+        string outDir = System.Environment.GetEnvironmentVariable("TANK3D_BUILD_DIR");
+        if (string.IsNullOrEmpty(outDir)) outDir = "D:/Builds/LastSalvo_WebGL";
+        Directory.CreateDirectory(outDir);
+
+        // 压缩优先：WebGL 的 Brotli 能显著压小首包，但需要服务器发对 Content-Encoding。
+        // 先不强行设，保持项目里的 PlayerSettings 原样，只在日志里报出来。
+        //
+        // 2026-11-19 实测坑：**Brotli 在这个工程上会卡死**。
+        // 现象：构建走到压缩阶段后 brotli.exe 挂住不退出、一直占着
+        // `Library/Bee/artifacts/WebGL/webgl.data` 的句柄，主进程 CPU 归零、日志停住；
+        // 下一次构建再跑就报 `IOException: ... being used by another process`。
+        // 已经两次踩到（第一次卡 15 分钟，第二次 142 秒直接失败）。
+        // 因此这里允许用环境变量 `TANK3D_WEBGL_GZIP=1` 切到 Gzip 绕开（体积多 ~10%）。
+        string gz = System.Environment.GetEnvironmentVariable("TANK3D_WEBGL_GZIP");
+        if (!string.IsNullOrEmpty(gz) && gz != "0")
+        {
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+            Debug.Log("[BuildCli] 已切换压缩格式为 Gzip（TANK3D_WEBGL_GZIP=1，规避 Brotli 卡死）");
+        }
+        else if (PlayerSettings.WebGL.compressionFormat == WebGLCompressionFormat.Brotli)
+        {
+            Debug.LogWarning("[BuildCli] 当前是 Brotli —— 本工程实测会卡死！建议加 TANK3D_WEBGL_GZIP=1");
+        }
+
+        Debug.Log($"[BuildCli] WebGL 输出目录 = {outDir}");
+        Debug.Log($"[BuildCli] 压缩格式 = {PlayerSettings.WebGL.compressionFormat}  " +
+                  $"dataCaching = {PlayerSettings.WebGL.dataCaching}  " +
+                  $"内存 = {PlayerSettings.WebGL.memorySize} MB  " +
+                  $"异常 = {PlayerSettings.WebGL.exceptionSupport}");
+
+        var opts = new BuildPlayerOptions
+        {
+            scenes = new[] { Scene },
+            locationPathName = outDir,
+            target = BuildTarget.WebGL,
+            options = BuildOptions.None,
+        };
+
+        var report = BuildPipeline.BuildPlayer(opts);
+        var s = report.summary;
+        Debug.Log($"[BuildCli] WebGL {s.result} 大小={s.totalSize / 1048576f:F1}MB " +
+                  $"用时={s.totalTime.TotalSeconds:F0}s 错误={s.totalErrors} 输出={outDir}");
+
+        // 把每个产出文件的大小也列出来，方便判断首包多大
+        if (Directory.Exists(outDir))
+        {
+            var files = new DirectoryInfo(outDir).GetFiles("*", SearchOption.AllDirectories);
+            System.Array.Sort(files, (a, b) => b.Length.CompareTo(a.Length));
+            int n = 0;
+            foreach (var f in files)
+            {
+                Debug.Log($"[BuildCli]   {f.Length / 1048576f:F1} MB  {f.FullName.Substring(outDir.Length + 1)}");
+                if (++n >= 12) break;
+            }
+        }
+
         if (Application.isBatchMode)
             EditorApplication.Exit(s.result == BuildResult.Succeeded ? 0 : 1);
     }

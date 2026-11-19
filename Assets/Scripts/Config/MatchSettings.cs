@@ -15,27 +15,60 @@ public static class MatchSettings
     // ---------------- 对局 ----------------
 
     /// <summary>初始金币。</summary>
-    public static int StartingGold = 200;
+    public static int StartingGold = 600;
 
-    /// <summary>开局就能用飞机（默认关）。关着的时候飞机跟着 unlockMinutes 一起解锁。</summary>
-    public static bool AirFromStart = false;
-
-    /// <summary>开局多少分钟后海/空载具才开放。0 = 一开始就全开。</summary>
+    /// <summary>
+    /// 开局多少分钟后海/空载具才开放。0 = 一开始就全开。
+    ///
+    /// 2026-11-18 深夜：**删掉了原来的 `AirFromStart` 开关**。
+    /// 用户截图指出「飞机开局就开放」那个开关和「空战解锁时间」是同一件事，
+    /// 两个都摆着会互相打架（一个说开、一个说等 N 分钟）。现在**只留这一条**：
+    /// 设 0 就是开局全开，设 N 就是 N 分钟后开放。
+    /// </summary>
     public static int UnlockMinutes = 3;
 
     // ---------------- 敌我人数（只算 AI） ----------------
+    //
+    // 2026-11-19 用户：「双方满编 6/6/6/6/6 没必要，减少几个」→ 默认改成 **每类 4 台**。
+    // 每方 = 炮艇4 + 轻4 + 主4 + 重4 + 空4 = **20 AI**，双方共 40 台（+ 你 = 41）。
+    // 上限仍是 MaxPerType=6，玩家可以在「游戏调整」里自己加回去。
 
-    public static int AllyShips = 1;
-    public static int AllyLight = 0;
-    public static int AllyMain = 2;
-    public static int AllyHeavy = 1;
-    public static int AllyAir = 1;
+    public static int AllyShips = 4;
+    public static int AllyLight = 4;
+    public static int AllyMain = 4;
+    public static int AllyHeavy = 4;
+    public static int AllyAir = 4;
 
-    public static int EnemyShips = 1;
-    public static int EnemyLight = 0;
-    public static int EnemyMain = 1;
-    public static int EnemyHeavy = 1;
-    public static int EnemyAir = 2;
+    public static int EnemyShips = 4;
+    public static int EnemyLight = 4;
+    public static int EnemyMain = 4;
+    public static int EnemyHeavy = 4;
+    public static int EnemyAir = 4;
+
+    // ---------------- 积分（VP）上涨倍率 ----------------
+    //
+    // 2026-11-17 用户要求：「在游戏设置调整积分上涨倍率（当然得有上限下限）」。
+    //
+    // 为什么需要它：两局模拟发现 VP 速率方差极大 ——
+    //   占 3 点 9.8 分钟就到 1500（太快）；
+    //   各占 1 点 15 分钟只到 886（永远打不满）。
+    // 让玩家自己调，就不用我猜一个"最优值"。
+    //
+    // 倍率直接乘在 `MatchManager.vpPerZoneSeconds` 的反比上：
+    //   倍率 1.0 = 默认（每据点每 1 秒 +1 VP）
+    //   倍率 2.0 = 涨得快一倍（到 1500 的时间减半）
+    //   倍率 0.5 = 涨得慢一半
+    public static float VpRateMul = DefaultVpRate;
+
+    /// <summary>默认倍率：0.75（较慢）。见 Load() 里的迁移说明。</summary>
+    public const float DefaultVpRate = 0.75f;
+
+    /// <summary>倍率的可选档位（界面直接给这几档，避免玩家拖出奇怪的值）。</summary>
+    public static readonly float[] VpRateSteps = { 0.5f, 0.75f, 1f, 1.5f, 2f, 3f };
+    public static readonly string[] VpRateNames = { "慢", "较慢", "标准", "较快", "快", "极快" };
+
+    public const float VpRateMin = 0.5f;
+    public const float VpRateMax = 3f;
 
     // ---------------- AI 强度 ----------------
 
@@ -43,8 +76,10 @@ public static class MatchSettings
     public static float AiSkill = 0.75f;
 
     /// <summary>三档难度，界面上直接给这三个。</summary>
-    public static readonly float[] SkillSteps = { 0.55f, 0.75f, 1.0f };
-    public static readonly string[] SkillNames = { "轻松", "普通", "原版（很凶）" };
+    public static readonly float[] SkillSteps = { 0.55f, 0.75f };
+    public static readonly string[] SkillNames = { "轻松", "普通" };
+    // 2026-11-18 深夜：用户要求删掉「原版（很凶）」那一档（1.0）—— 太难，没人用。
+    // ⚠️ 老存档 AiSkill=1.0 的情况在 Load() 里已降成 0.75。
 
     // ---------------- 人数上限 ----------------
 
@@ -94,7 +129,13 @@ public static class MatchSettings
         Add(IdHeavy, CountOf(team, IdHeavy));
         Add(IdLight, CountOf(team, IdLight));
         Add(IdShip, CountOf(team, IdShip));
-        Add(IdFighter, CountOf(team, IdFighter));
+
+        // 2026-11-18 深夜（用户问"飞机上限多少、场上好像没这么多"时查出来的真 bug）：
+        // 这里原来只 `Add(IdFighter, ...)` —— **攻击机一次都没生成过**，
+        // 模型和数值（450 血 / 反坦克弹）做了却永远不上场。
+        // 现在按槽位交替混编：0/2/4 战斗机、1/3/5 攻击机。
+        int airN = CountOf(team, IdFighter);
+        for (int i = 0; i < airN; i++) list.Add(i % 2 == 1 ? IdAttacker : IdFighter);
         return list;
     }
 
@@ -111,7 +152,6 @@ public static class MatchSettings
     public static bool DomainUnlocked(Domain d)
     {
         if (d != Domain.Air) return true;          // 陆战、海战：随时可用
-        if (AirFromStart) return true;             // 飞机：开局就开放（默认关）
         if (UnlockMinutes <= 0) return true;       // 倒计时设 0 = 立刻开放
         return MatchElapsed >= UnlockMinutes * 60f;
     }
@@ -129,23 +169,77 @@ public static class MatchSettings
 
     public static void Load()
     {
-        StartingGold = PlayerPrefs.GetInt(K + "gold", 200);
-        AirFromStart = PlayerPrefs.GetInt(K + "airFromStart", 0) != 0;
+        // 2026-11-17 经济系统：默认开局金币 200 → 600。
+        // ⚠️ 老存档里可能还存着 200（PlayerPrefs 会盖掉代码默认值），
+        // 所以这里加一个"低于 400 就按 600 起"的迁移，避免老玩家一直用旧值。
+        StartingGold = PlayerPrefs.GetInt(K + "gold", 600);
+        if (StartingGold < 400) StartingGold = 600;
+        // 2026-11-18 深夜：原来那个独立的「飞机开局就开放」开关删掉了，语义并进 UnlockMinutes。
+        // 老存档里如果存着 airFromStart=1，这里**迁移成 UnlockMinutes=0**（等价），
+        // 否则玩家会变成"飞机永远不开放"（开关没了、分钟数还在 3）。
+        bool legacyAirFromStart = PlayerPrefs.GetInt(K + "airFromStart", 0) != 0;
         UnlockMinutes = PlayerPrefs.GetInt(K + "unlockMin", 3);
+        if (legacyAirFromStart) UnlockMinutes = 0;
 
-        AllyShips = PlayerPrefs.GetInt(K + "aShip", 1);
-        AllyLight = PlayerPrefs.GetInt(K + "aLight", 0);
-        AllyMain = PlayerPrefs.GetInt(K + "aMain", 2);
-        AllyHeavy = PlayerPrefs.GetInt(K + "aHeavy", 1);
-        AllyAir = PlayerPrefs.GetInt(K + "aAir", 1);
+        // 2026-11-19：默认编制改成每类 4 台（原来代码默认是 1/0/2/1/1，出货存档是 6/6/6/6/6）。
+        AllyShips = PlayerPrefs.GetInt(K + "aShip", 4);
+        AllyLight = PlayerPrefs.GetInt(K + "aLight", 4);
+        AllyMain = PlayerPrefs.GetInt(K + "aMain", 4);
+        AllyHeavy = PlayerPrefs.GetInt(K + "aHeavy", 4);
+        AllyAir = PlayerPrefs.GetInt(K + "aAir", 4);
 
-        EnemyShips = PlayerPrefs.GetInt(K + "eShip", 1);
-        EnemyLight = PlayerPrefs.GetInt(K + "eLight", 0);
-        EnemyMain = PlayerPrefs.GetInt(K + "eMain", 1);
-        EnemyHeavy = PlayerPrefs.GetInt(K + "eHeavy", 1);
-        EnemyAir = PlayerPrefs.GetInt(K + "eAir", 2);
+        EnemyShips = PlayerPrefs.GetInt(K + "eShip", 4);
+        EnemyLight = PlayerPrefs.GetInt(K + "eLight", 4);
+        EnemyMain = PlayerPrefs.GetInt(K + "eMain", 4);
+        EnemyHeavy = PlayerPrefs.GetInt(K + "eHeavy", 4);
+        EnemyAir = PlayerPrefs.GetInt(K + "eAir", 4);
+
+        // 2026-11-19：老存档里那种"双方全 6 满编"一次性降成 4/类。
+        // 只认"10 个值全是 6"这一个精确状态，玩家自己调过的组合一律不动。
+        // ⚠️ 必须把新值**写回 PlayerPrefs**：只改内存的话，标记位已经是 1、
+        //    下次启动又会从存档读回 6，等于迁移没做（第一次写漏了，11-19 打包前抓到）。
+        if (PlayerPrefs.GetInt(K + "lineupMigrated", 0) == 0)
+        {
+            bool allSix = AllyShips == 6 && AllyLight == 6 && AllyMain == 6 && AllyHeavy == 6 && AllyAir == 6
+                       && EnemyShips == 6 && EnemyLight == 6 && EnemyMain == 6 && EnemyHeavy == 6 && EnemyAir == 6;
+            if (allSix)
+            {
+                AllyShips = AllyLight = AllyMain = AllyHeavy = AllyAir = 4;
+                EnemyShips = EnemyLight = EnemyMain = EnemyHeavy = EnemyAir = 4;
+                foreach (var key in new[] { "aShip", "aLight", "aMain", "aHeavy", "aAir",
+                                            "eShip", "eLight", "eMain", "eHeavy", "eAir" })
+                    PlayerPrefs.SetInt(K + key, 4);
+                PlayerPrefs.Save();
+            }
+            PlayerPrefs.SetInt(K + "lineupMigrated", 1);
+            PlayerPrefs.Save();
+        }
 
         AiSkill = PlayerPrefs.GetFloat(K + "ai", 0.75f);
+        // 2026-11-18 深夜：AI 强度删掉了最凶那档（1.0「原版（很凶）」），只留 轻松 0.55 / 普通 0.75。
+        // 老存档要是选过 1.0，界面上两档都不会亮 —— 这里降成 0.75。
+        if (AiSkill > 0.85f) AiSkill = 0.75f;
+
+        // 2026-11-17 20:40：积分上涨倍率默认值 1.00（标准）→ **0.75（较慢）**。
+        //
+        // 原因：1.00 时占满 3 点只要 8.3 分钟就赢 ——
+        // 实测一局敌方早早占满 3 点，我方连翻盘的时间都没有，9:47 就结束了。
+        // 调到 0.75 后：
+        //   占 3 点 → 11.1 分钟到 1500（多给落后方近 3 分钟）
+        //   占 2 点 → 15 分钟只到 1350，打满按分数判（我方 1350 : 对方 675 稳赢）
+        // 也就是说"必须占满 3 点才能提前赢"，占 2 点就得靠时间到比分数。
+        //
+        // 迁移：老存档里存着旧默认 1.00 的，自动换成新默认；
+        // 玩家自己手动调过别的值（≠1.00）就保留不动。用一次性标记位，不会每次启动都重置。
+        if (PlayerPrefs.GetInt(K + "vpRateMigrated", 0) == 0)
+        {
+            float old = PlayerPrefs.GetFloat(K + "vpRate", DefaultVpRate);
+            if (Mathf.Abs(old - 1f) < 0.001f) old = DefaultVpRate;
+            PlayerPrefs.SetFloat(K + "vpRate", old);
+            PlayerPrefs.SetInt(K + "vpRateMigrated", 1);
+        }
+        VpRateMul = PlayerPrefs.GetFloat(K + "vpRate", DefaultVpRate);
+
         Clamp();
     }
 
@@ -153,8 +247,7 @@ public static class MatchSettings
     {
         Clamp();
         PlayerPrefs.SetInt(K + "gold", StartingGold);
-        PlayerPrefs.SetInt(K + "airFromStart", AirFromStart ? 1 : 0);
-        PlayerPrefs.SetInt(K + "unlockMin", UnlockMinutes);
+        PlayerPrefs.SetInt(K + "unlockMin", UnlockMinutes);   // 2026-11-18：airFromStart 已删，只存这一条
 
         PlayerPrefs.SetInt(K + "aShip", AllyShips);
         PlayerPrefs.SetInt(K + "aLight", AllyLight);
@@ -169,15 +262,18 @@ public static class MatchSettings
         PlayerPrefs.SetInt(K + "eAir", EnemyAir);
 
         PlayerPrefs.SetFloat(K + "ai", AiSkill);
+        PlayerPrefs.SetFloat(K + "vpRate", VpRateMul);
         PlayerPrefs.Save();
     }
 
     public static void ResetAll()
     {
-        StartingGold = 200; AirFromStart = false; UnlockMinutes = 3;
-        AllyShips = 1; AllyLight = 0; AllyMain = 2; AllyHeavy = 1; AllyAir = 1;
-        EnemyShips = 1; EnemyLight = 0; EnemyMain = 1; EnemyHeavy = 1; EnemyAir = 2;
+        StartingGold = 600; UnlockMinutes = 3;
+        // 2026-11-19：重置也回到"每类 4 台"（每方 20 AI），不再是 1/0/2/1/1。
+        AllyShips = 4; AllyLight = 4; AllyMain = 4; AllyHeavy = 4; AllyAir = 4;
+        EnemyShips = 4; EnemyLight = 4; EnemyMain = 4; EnemyHeavy = 4; EnemyAir = 4;
         AiSkill = 0.75f;
+        VpRateMul = DefaultVpRate;
         Save();
     }
 
@@ -196,5 +292,6 @@ public static class MatchSettings
         EnemyHeavy = Mathf.Clamp(EnemyHeavy, 0, MaxPerType);
         EnemyAir = Mathf.Clamp(EnemyAir, 0, MaxPerType);
         AiSkill = Mathf.Clamp(AiSkill, 0.3f, 1f);
+        VpRateMul = Mathf.Clamp(VpRateMul, VpRateMin, VpRateMax);
     }
 }

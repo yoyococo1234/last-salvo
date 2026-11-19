@@ -8,7 +8,7 @@ using UnityEngine;
 /// 背景是玩家看到的第一眼，纯渐变太素。这里直接在 Map_Battlefield 里摆临时相机，
 /// 渲成 1920×1080 PNG 存进 Resources，运行时按 ScaleAndCrop 铺满。
 ///
-/// 用法：菜单 `Tools → 铁皮黎明 → 生成界面背景`，或调 <see cref="GenerateAll"/>。
+/// 用法：菜单 `Tools → 最后校射 → 生成界面背景`，或调 <see cref="GenerateAll"/>。
 /// 候选机位调 <see cref="RenderCandidates"/>（渲到 work/backdrops 供挑选）。
 /// </summary>
 public static class UiBackdropGen
@@ -17,7 +17,7 @@ public static class UiBackdropGen
     const string CandDir = "D:/UnityProjects/Tank3D/work/backdrops";
 
     /// <summary>正式出图：封面 + 车库（都用暮色光，和 UI 的深蓝+金配色同调）。</summary>
-    [MenuItem("Tools/铁皮黎明/生成界面背景")]
+    [MenuItem("Tools/最后校射/生成界面背景")]
     public static void GenerateAll()
     {
         Directory.CreateDirectory(OutDir);
@@ -42,7 +42,7 @@ public static class UiBackdropGen
     }
 
     /// <summary>渲一组候选机位到 work/backdrops，挑完再写进 GenerateAll。</summary>
-    [MenuItem("Tools/铁皮黎明/生成界面背景（候选机位）")]
+    [MenuItem("Tools/最后校射/生成界面背景（候选机位）")]
     public static void RenderCandidates()
     {
         Directory.CreateDirectory(CandDir);
@@ -60,7 +60,7 @@ public static class UiBackdropGen
     }
 
     /// <summary>暮色候选：同样的机位换成黄昏光 + 雾，挑出最有氛围的几张。</summary>
-    [MenuItem("Tools/铁皮黎明/生成界面背景（暮色候选）")]
+    [MenuItem("Tools/最后校射/生成界面背景（暮色候选）")]
     public static void RenderDuskCandidates()
     {
         Directory.CreateDirectory(CandDir);

@@ -8,16 +8,22 @@ public static class GameBuilder
 {
     const string Scene = "Assets/Scenes/Map_Battlefield.unity";
 
-    [MenuItem("Tools/铁皮黎明/④ 打包 Windows 版", false, 50)]
+    // 2026-11-18 改名：铁皮黎明 → 最后校射 / Last Salvo。
+    // 输出目录和 exe 名跟着改（productName 也一起改了，窗口标题会对上）。
+    const string ExeName = "LastSalvo";
+    const string WinDir = "D:/Builds/LastSalvo_Win";
+    const string WebDir = "D:/Builds/LastSalvo_WebGL";
+
+    [MenuItem("Tools/最后校射/④ 打包 Windows 版", false, 50)]
     public static void BuildWindows()
     {
-        string outDir = "D:/Builds/Tank3D_Win";
+        string outDir = WinDir;
         Directory.CreateDirectory(outDir);
 
         var opts = new BuildPlayerOptions
         {
             scenes = new[] { Scene },
-            locationPathName = $"{outDir}/Tank3D.exe",
+            locationPathName = $"{outDir}/{ExeName}.exe",
             target = BuildTarget.StandaloneWindows64,
             options = BuildOptions.None,
         };
@@ -27,10 +33,10 @@ public static class GameBuilder
         Debug.Log($"[GameBuilder] Windows 打包结果 {s.result}，大小 {s.totalSize / 1048576f:F0} MB，用时 {s.totalTime.TotalSeconds:F0} 秒，错误 {s.totalErrors}");
     }
 
-    [MenuItem("Tools/铁皮黎明/④ 打包 WebGL 版（低配）", false, 51)]
+    [MenuItem("Tools/最后校射/④ 打包 WebGL 版（低配）", false, 51)]
     public static void BuildWebGL()
     {
-        string outDir = "D:/Builds/Tank3D_WebGL";
+        string outDir = WebDir;
         Directory.CreateDirectory(outDir);
 
         var opts = new BuildPlayerOptions

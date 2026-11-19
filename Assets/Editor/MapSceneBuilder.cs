@@ -7,14 +7,14 @@ using UnityEditor.SceneManagement;
 ///
 /// 玩家不再预先摆在场景里 —— 开局进车库选车，由 VehicleFactory 在运行时生成。
 ///
-/// 菜单：Tools/铁皮黎明/② 搭建对局场景
+/// 菜单：Tools/最后校射/② 搭建对局场景
 /// </summary>
 public static class MapSceneBuilder
 {
     const string ScenePath = "Assets/Scenes/Map_Battlefield.unity";
     const string RootName = "Test_Vehicles";
 
-    [MenuItem("Tools/铁皮黎明/② 搭建对局场景（敌方+相机+车库）", false, 20)]
+    [MenuItem("Tools/最后校射/② 搭建对局场景（敌方+相机+车库）", false, 20)]
     public static void Build()
     {
         var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);

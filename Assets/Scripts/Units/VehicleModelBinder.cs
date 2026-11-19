@@ -614,6 +614,7 @@ public static class VehicleModelBinder
         var stores = root.gameObject.GetComponent<WingStores>();
         if (stores == null) stores = root.gameObject.AddComponent<WingStores>();
         stores.model = model;
+        stores.profileKey = def != null ? def.id : null;
         stores.perSide = 4;
         // 2026-11-12：机翼上挂几枚按**实际备弹**来 —— 空空导弹只有 1 发时就只挂 1 枚，
         // 否则挂 8 枚却只能打 1 发，看着像无限弹。

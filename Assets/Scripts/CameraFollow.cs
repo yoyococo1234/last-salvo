@@ -55,17 +55,28 @@ public class CameraFollow : MonoBehaviour
     [Tooltip("机位抬高量 = 跟机距离 × 该值。0.5 ≈ 从斜上方俯看机背")]
     public float airHeightFactor = 0.5f;
     [Tooltip("视线相对机头压低多少度。平飞时视野 50° 压 18° = 地平线在画面上方 22%")]
-    // 2026-11-16 用户："机枪瞄准时飞机不在正中心，也修" —— 18° 的压低量让机头准星
-    // 明显跑到画面上方。压到 6°，准星基本落在中心，同时还能看到一点前方地面。
-    public float airLookDownDeg = 6f;
+    // 2026-11-18 回退到 18（11-12 原值）。11-16 为了让"机头准星落在正中心"压到 6°，
+    // 代价是平飞时看不到前方地面 —— 空战里靠地平线判断姿态的那点感觉全没了。
+    // 场景里序列化的也是 18，这里只是让代码默认值与场景一致（免得下次又对不上）。
+    public float airLookDownDeg = 18f;
     [Tooltip("跟机距离下限（米）。太近时飞机一抬头，机身会横满屏幕 —— 这是硬下限")]
     public float airMinDistance = 17f;
     [Tooltip("跟机距离上限（米）")]
     public float airMaxDistance = 44f;
-    [Tooltip("镜头跟随飞机滚转的比例：1 = 完全跟随（压杆时地平线跟着斜），0 = 永远水平")]
-    [Range(0f, 1f)] public float airRollFollow = 0.85f;
-    [Tooltip("镜头滚转的平滑速度（每秒收敛率）。越大越跟手、越小越柔和。" +
-             "2026-11-17 用户反馈「视角依然不平滑」—— 这个值就是那个柔度")]
+    [Tooltip("镜头跟随飞机滚转的比例：1 = 完全跟随（飞机永远平行于屏幕边框，世界跟着歪），0 = 永远水平")]
+    // 🟢🟢 2026-11-18 15:40 从 0.85 提到 **1.0**（用户："转了很多圈之后飞机歪斜了，
+    // 理论上它应该与电脑边框永远平行"）。
+    //
+    // 真因不是漂移，是**比例小于 1 必然留下残差**：
+    //   camRoll = 0.85 × 累计滚转角。完整滚一圈（360°）之后，飞机已经回到平飞（坡度 0），
+    //   但相机被留在了 0.85×360 = 306° ≡ -54° —— MCP 实测「坡度=0，相机=+54°」，
+    //   于是飞机在画面里歪 54°，而仪表说 0°。滚两圈歪 108°，滚得越多越歪。
+    //
+    // 只有 1.0 没有这个问题：1×360 = 360 ≡ 0，滚多少圈都精确回到正。
+    // 而且 1.0 正好是用户要的观感：**飞机永远正着，环境（地平线）跟着歪**。
+    // ⚠️ 不要再调回 0.85 之类的小数 —— 那不是"柔和"，那是每滚一圈就攒 54° 的歪。
+    [Range(0f, 1f)] public float airRollFollow = 1f;
+    [Tooltip("（2026-11-18 起已不再使用：滚转跟随改成增量累积后自带连续性，不再需要这层平滑）")]
     public float airRollSmooth = 4f;
 
     [Header("飞机开镜（按住 Shift）")]
@@ -157,11 +168,13 @@ public class CameraFollow : MonoBehaviour
     float _camRollFollow;
 
     /// <summary>
-    /// 上一帧的「飞机 up 在视线垂直面上的投影」。
-    /// **增量累积的关键**：每帧只算它到当前帧的小角度增量，绕开 180° 处 SignedAngle 的符号歧义。
-    /// Vector3.zero 表示还没建立基准（换载具 / 参考退化后重建）。
+    /// 连续的坡度角（度，展开后可以是任意值：360/540 都不会断）。
+    /// 2026-11-18 15:05 改成直接跟踪**真实坡度角**本身（而不是旋转增量在某轴上的分量）。
+    /// 详见 ChaseCamera 里那段注释：绕世界竖轴偏航的增量在机头轴上的分量 ≠ 机身滚转，
+    /// 机头一仰就会把"转弯"记成"滚转"，飞几分钟画面就歪了（用户截图实锤）。
     /// </summary>
-    Vector3 _prevPlaneUpProj;
+    float _bankCont;
+    bool _rollBaseReady;
 
     /// <summary>验收用：打印滚转跟随的内部量（正常游戏关）。</summary>
     public bool DebugRollDiag = false;
@@ -293,9 +306,9 @@ public class CameraFollow : MonoBehaviour
             FitDistanceToTarget();
             _pivotInit = false;      // 换车时重置平滑基准，别从上一台车的位置滑过去
             _mouseX = _mouseY = 0f;
-            // 换载具：滚转跟随的基准必须重建（旧基准是上一台飞机的 up 投影）
+            // 换载具：滚转跟随的基准必须重建（旧基准是上一台飞机的姿态）
             _camRollFollow = 0f;
-            _prevPlaneUpProj = Vector3.zero;
+            _rollBaseReady = false;
         }
 
         // 开飞机时是追尾视角：鼠标用来操控飞机，不能同时转镜头。
@@ -915,61 +928,68 @@ public class CameraFollow : MonoBehaviour
         //   这条死路** —— 只要从绝对方向反推，180° 处必然歧义，换哪种插值都没用。
         //
         // ✅ 真正的解法：**不反推绝对角度，改用增量累积**。
-        //   每帧只算"这一帧飞机相对上一帧滚了多少度"（小角度增量，Cross 模长永远足够大，
-        //   不存在歧义），把增量累加到一个持久角上。这样滚到 180°、540°、任何角度都连续。
+        //   每帧只算"这一帧飞机相对上一帧滚了多少度"（小角度增量），累加到一个持久角上。
+        //
+        // ⚠️⚠️⚠️ 2026-11-18 15:05 —— 上面那套"取旋转增量在机头轴上的分量"**还是错的**，
+        // 用户截图实锤：仪表显示「坡度 0°」，画面里地平线却斜了 30°。
+        //
+        //   原因：**绕世界竖轴偏航的旋转，在机头轴上的分量 ≠ 机身滚转**。
+        //   机头仰起 30° 时绕世界 up 偏航 10°，四元数增量在机头轴上的分量是
+        //   10° × dot(worldUp, forward) = 10° × sin30° = **5°**，但真实坡度变化是 **0°**
+        //   （MCP 算过：偏航前后 SignedAngle(refUp, up, forward) 都是 0）。
+        //   于是每转一个弯就偷偷攒几度，飞几分钟就是 30° —— 画面越飞越歪。
+        //
+        // ✅ 最终方案：直接跟踪**真实坡度角**本身，用"展开（unwrap）"消掉 ±180 歧义：
+        //   raw  = SignedAngle(世界 up 投影, 机身 up, 机头)  →  -180~180，瞬时量
+        //   cont = cont + DeltaAngle(cont, raw)              →  连续值，滚多少圈都不断
+        //   真实坡度对偏航/俯仰都免疫（MCP 验证：仰头 30° 偏航 10°，坡度恒 0），
+        //   所以这条链路既不会漂，也没有 180° 跳变。
         Vector3 camUp;
         {
-            // 滚转参考必须相对**视线**（lookDir），不是相对机头 —— 见上面 ②
+            // 滚转轴用**视线**（lookDir），保证 camUp 与 lookDir 永远正交 ——
+            // LookRotation 对不垂直的 up 会强行正交化，那是画面抖的来源之一。
             Vector3 rollAxis = lookDir.normalized;
 
-            Vector3 upProj = Vector3.ProjectOnPlane(Vector3.up, rollAxis);
-            Vector3 planeUpProj = Vector3.ProjectOnPlane(upPlane, rollAxis);
-
-            // 模长 = cos(机头与 up 的夹角)。机头越接近竖直，参考越不可靠。
-            float stability = Mathf.Clamp01(upProj.magnitude / 0.45f);   // 0.45 ≈ 63° 开始降权
-            stability *= Mathf.Clamp01(planeUpProj.magnitude / 0.45f);
-
-            if (stability < 0.02f)
+            // ---- 真实坡度角（绕机头轴，-180~180）----
+            Vector3 planeUp = target.up;
+            Vector3 fwdAxis = target.forward;
+            Vector3 refUpAxis = Vector3.ProjectOnPlane(Vector3.up, fwdAxis);
+            float rawBank;
+            bool bankValid = refUpAxis.sqrMagnitude > 0.02f;   // 机头接近竖直时坡度本身没意义
+            if (bankValid)
             {
-                // 机头几乎竖直：滚转参考退化。缓慢回 0（不要把噪声放大）。
-                _camRollFollow = Mathf.LerpAngle(_camRollFollow, 0f, 1f - Mathf.Exp(-2f * dt));
-                _prevPlaneUpProj = Vector3.zero;      // 参考断了，下一帧重新建立基准
+                refUpAxis.Normalize();
+                rawBank = Vector3.SignedAngle(refUpAxis, planeUp, fwdAxis);   // 负 = 右坡度
             }
-            else
+            else rawBank = _bankCont;
+
+            // ---- 展开成连续角（滚过 180°/360° 都不会跳）----
+            if (!_rollBaseReady || !bankValid)
             {
-                upProj.Normalize();
-                planeUpProj.Normalize();
-
-                // ---- 增量累积（关键）----
-                // 第一帧 / 参考刚重建：建立基准，本帧不累加
-                if (_prevPlaneUpProj == Vector3.zero)
-                {
-                    _prevPlaneUpProj = planeUpProj;
-                }
-                else
-                {
-                    // 这一帧飞机相对上一帧滚了多少度（**小角度**，Cross 模长足够，无歧义）
-                    float deltaRoll = Vector3.SignedAngle(_prevPlaneUpProj, planeUpProj, rollAxis);
-                    _prevPlaneUpProj = planeUpProj;
-
-                    // 增量 × 跟随比例，累加到持久角上。
-                    // 用 Clamp 防单帧跳变（比如换载具/瞬移时增量会很大）。
-                    float step = Mathf.Clamp(deltaRoll, -30f, 30f) * Mathf.Clamp01(airRollFollow) * stability;
-                    _camRollFollow = Mathf.Repeat(_camRollFollow + step + 180f, 360f) - 180f;
-                }
-
-                if (DebugRollDiag)
-                {
-                    Debug.Log($"[RollDiag] stability={stability:F3} follow={_camRollFollow:F2} " +
-                              $"upProjMag={upProj.magnitude:F4} dt={dt:F4}");
-                }
+                if (!_rollBaseReady) { _bankCont = rawBank; _rollBaseReady = true; }
+                // bankValid=false 时保持上一次的值，不做更新
             }
+            else _bankCont += Mathf.DeltaAngle(_bankCont, rawBank);
 
-            // 始终绕 lookDir 转，保证与视线正交（LookRotation 不会强行正交化）
-            camUp = Quaternion.AngleAxis(_camRollFollow, rollAxis) * upProj;
-            if (camUp.sqrMagnitude < 0.0001f) camUp = Vector3.up;
-            camUp = Vector3.ProjectOnPlane(camUp, rollAxis);   // 双保险：抹掉数值误差
-            if (camUp.sqrMagnitude < 0.0001f) camUp = Vector3.up;
+            // 应用到相机上的角度收进 ±180（AngleAxis 对 ±360 完全等价，收进来只是防止数值越滚越大）。
+            // ⚠️ 注意：airRollFollow < 1 时，残差是"比例"造成的，不是这里的 wrap 造成的 ——
+            //    所以不要把 wrap 当解药，见字段上的注释。
+            _camRollFollow = Mathf.Repeat(_bankCont * Mathf.Clamp01(airRollFollow) + 180f, 360f) - 180f;
+
+            if (DebugRollDiag)
+                Debug.Log($"[RollDiag] raw={rawBank:F1} cont={_bankCont:F1} " +
+                          $"camRoll={_camRollFollow:F1} airRollFollow={airRollFollow:F2} dt={dt:F4}");
+
+            // 参考 up：正常用世界 up 投影到视线平面；机头接近竖直时它退化，
+            // 退而用飞机自己的 up（这时候"上"本来就该由飞机决定）。
+            Vector3 upRef = Vector3.ProjectOnPlane(Vector3.up, rollAxis);
+            if (upRef.sqrMagnitude < 0.04f) upRef = Vector3.ProjectOnPlane(planeUp, rollAxis);
+            if (upRef.sqrMagnitude < 0.0001f) upRef = Vector3.ProjectOnPlane(Vector3.forward, rollAxis);
+            upRef.Normalize();
+
+            camUp = Quaternion.AngleAxis(_camRollFollow, rollAxis) * upRef;
+            camUp = Vector3.ProjectOnPlane(camUp, rollAxis);
+            if (camUp.sqrMagnitude < 0.0001f) camUp = upRef;
             camUp.Normalize();
         }
 

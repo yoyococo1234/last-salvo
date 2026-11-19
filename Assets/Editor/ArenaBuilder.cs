@@ -5,11 +5,11 @@ using System.IO;
 
 /// <summary>
 /// 战场生成器：读 Config → 程序化生成整个场景 → 存成 Assets/Scenes/Main.unity。
-/// 改完参数后跑一次 Tools/铁皮黎明/生成战场 即可重建。
+/// 改完参数后跑一次 Tools/最后校射/生成战场 即可重建。
 /// </summary>
 public static class ArenaBuilder
 {
-    [MenuItem("Tools/铁皮黎明/生成战场")]
+    [MenuItem("Tools/最后校射/生成战场")]
     public static void Build()
     {
         EnsureFolder("Assets/Scenes");

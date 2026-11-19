@@ -16,7 +16,7 @@ MonoBehaviour:
   displayName: "\u6218\u6597\u673A"
   domain: 2
   engineLoopName: engine_loop_jet
-  price: 160
+  price: 180
   respawnBaseCost: 80
   maxHp: 300
   armorMode: 1

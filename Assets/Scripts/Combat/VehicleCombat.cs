@@ -48,8 +48,46 @@ public class VehicleCombat : MonoBehaviour
 
     VehiclePhysics _phys;
     VehicleModule _modules;
-    float _nextFireTime;
-    float _nextMgFireTime;      // 机枪独立装填计时
+
+    // ==================== 装填计时（2026-11-17 修 bug）====================
+    // ⚠️ 原来是**一个** `_nextFireTime` 被主炮和鱼雷共用，导致：
+    //    打完舰炮（4 s 装填）→ 鱼雷也进入 4 s 冷却；
+    //    反过来发完鱼雷（9 s）→ 舰炮也被锁 9 s。
+    //    用户原话："我发现舰炮会影响鱼雷的装填，这巴不对"。
+    // 现在按 `def.weapons` 的下标各存一个计时器（数组），互不干扰。
+    float[] _nextFireByWeapon;
+
+    /// <summary>某把武器还要多久能再开火（0 = 已就绪）。</summary>
+    float ReloadLeft(WeaponDef w)
+    {
+        if (w == null || def == null || def.weapons == null) return 0f;
+        int i = System.Array.IndexOf(def.weapons, w);
+        if (i < 0) return 0f;
+        EnsureFireTimers();
+        return Mathf.Max(0f, _nextFireByWeapon[i] - Time.time);
+    }
+
+    /// <summary>某把武器是否已装填完毕。</summary>
+    bool ReadyToFire(WeaponDef w) => ReloadLeft(w) <= 0f;
+
+    /// <summary>给某把武器上装填。</summary>
+    void StartReload(WeaponDef w)
+    {
+        if (w == null || def == null || def.weapons == null) return;
+        int i = System.Array.IndexOf(def.weapons, w);
+        if (i < 0) return;
+        EnsureFireTimers();
+        _nextFireByWeapon[i] = Time.time + w.reloadTime;
+    }
+
+    void EnsureFireTimers()
+    {
+        int n = def != null && def.weapons != null ? def.weapons.Length : 0;
+        if (_nextFireByWeapon == null || _nextFireByWeapon.Length != n)
+            _nextFireByWeapon = new float[n];
+    }
+
+    float _nextMgFireTime;      // 机枪独立装填计时（甲板机枪不走 def.weapons 下标，单独一份）
     float _nextHitVoice;        // "被击中"语音的冷却
     bool _torpedoLeft;          // 鱼雷左右管交替
 
@@ -200,7 +238,8 @@ public class VehicleCombat : MonoBehaviour
     /// <summary>主武器当前弹药。</summary>
     public AmmoDef Ammo => AmmoFor(Weapon);
 
-    public float ReloadProgress => Weapon == null ? 1f : Mathf.Clamp01(1f - (_nextFireTime - Time.time) / Mathf.Max(0.01f, Weapon.reloadTime));
+    public float ReloadProgress => Weapon == null ? 1f
+        : Mathf.Clamp01(1f - ReloadLeft(Weapon) / Mathf.Max(0.01f, Weapon.reloadTime));
 
     void Awake()
     {
@@ -357,7 +396,7 @@ public class VehicleCombat : MonoBehaviour
 
     // ==================== 开火 ====================
 
-    public bool CanFire => Alive && !gunBroken && Weapon != null && Time.time >= _nextFireTime && HasAmmoFor(Weapon);
+    public bool CanFire => Alive && !gunBroken && Weapon != null && ReadyToFire(Weapon) && HasAmmoFor(Weapon);
 
     // ---------------- 备弹（飞机挂架上的导弹是有数的） ----------------
 
@@ -432,9 +471,17 @@ public class VehicleCombat : MonoBehaviour
     bool FireWeapon(WeaponDef w, Vector3? aimPoint)
     {
         var ammo = AmmoFor(w);
-        if (w == null || ammo == null || !CanFire) return false;
+        if (w == null || ammo == null) return false;
 
-        _nextFireTime = Time.time + w.reloadTime;
+        // ⚠️ 2026-11-17 修：原来这里用的是 `CanFire`，而 `CanFire` 检查的是 **Weapon（主武器）**
+        // 的装填状态。于是"打鱼雷"也要等舰炮装填好、"打舰炮"也要等鱼雷装填好 ——
+        // 两把武器共用一个计时器，用户报的"舰炮影响鱼雷装填"就是这个。
+        // 现在只检查**这一把武器自己**的装填 + 自己有没有弹。
+        if (!Alive || gunBroken) return false;
+        if (!ReadyToFire(w)) return false;
+        if (!HasAmmoFor(w)) return false;
+
+        StartReload(w);
 
         // 扣一发（有备弹上限的武器）
         if (w.ammoCapacity > 0 && def != null && def.weapons != null)
@@ -959,7 +1006,8 @@ public class VehicleCombat : MonoBehaviour
     {
         dead = false;
         hp = maxHp;
-        _nextFireTime = 0f;
+        _nextFireByWeapon = null;   // 复活时所有武器的装填全部清零（含鱼雷）
+        _nextMgFireTime = 0f;
         _ammoLeft = null;          // 复活时备弹补满（导弹重新挂上）
         var ws = GetComponent<WingStores>();
         if (ws != null) ws.Reset();

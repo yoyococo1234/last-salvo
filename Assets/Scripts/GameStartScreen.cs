@@ -17,8 +17,10 @@ public class GameStartScreen : MonoBehaviour
     enum Page { Main, Keys, Options }
 
     [Header("文案")]
-    public string title = "铁皮黎明";
-    public string subtitle = "2 公里 · 陆海空三域战场";
+    // 2026-11-18 用户定名：中文主标题「最后校射」，副标题直接用它的英文译名。
+    // 旧名「铁皮黎明」被否（形容词+宏大名词，读着尬）。
+    public string title = "最后校射";
+    public string subtitle = "LAST SALVO";
 
     Page _page = Page.Main;
     float _fade;          // 入场淡入（从黑到亮），用 unscaledDeltaTime 推进
@@ -177,7 +179,10 @@ public class GameStartScreen : MonoBehaviour
             // 肉眼就是"副标题贴着标题底边"（用户 2026-11-11 反馈字挤）。
             UiKit.Label(new Rect(r.x + 28f, r.y + 4f, bw - 40f, 34f), labels[i], 26,
                         hv > 0.4f ? accent[i] : UiKit.Text, TextAnchor.MiddleLeft, true);
-            UiKit.Label(new Rect(r.x + 28f, r.y + 42f, bw - 40f, 18f), hints[i], 13,
+            // 2026-11-18 用户反馈"副标题下沿被卡掉一截"：13px 字在 18px 框里，
+            // MiddleLeft 会把字形上下各留 2.5px，但中文方块字实际行高 ≈ 字号×1.35 = 17.5px，
+            // 只剩 0.5px 余量，遇到 DPI 非整数缩放就被裁。改成 20px 框 + 上移 1px。
+            UiKit.Label(new Rect(r.x + 28f, r.y + 41f, bw - 40f, 20f), hints[i], 13,
                         hv > 0.4f ? UiKit.Desc : UiKit.Dim, TextAnchor.MiddleLeft);
 
             if (hit.clicked)
@@ -191,30 +196,10 @@ public class GameStartScreen : MonoBehaviour
         }
 
         // ---- 底部提示 ----
-        UiKit.Label(new Rect(0f, 1000f, vw, 26f),
-            "鼠标点选　·　进游戏后 P 暂停（可重开）/ TAB 商店 / G 换车 / V 机枪", 17,
+        // 2026-11-18 用户要求：开局封面不要写规则和按键（那属于说明书，不该压封面），
+        // 只留一句指路 —— 想查的人自己进「游戏调整」「按键设置」。
+        UiKit.Label(new Rect(0f, 1012f, vw, 26f),
+            "对局调整与按键见「游戏调整」「按键设置」", 17,
             new Color(0.62f, 0.72f, 0.82f, 0.8f), TextAnchor.MiddleCenter);
-        // 注意：UnlockText() 自己已经带"空战"前缀（"空战 3 分钟后开放" / "开局就开放"），
-        // 这里**不要**再写"海空"——以前就是多拼了一层，显示成「海空空战 3 分钟后开放」。
-        UiKit.Label(new Rect(0f, 1028f, vw, 24f),
-            $"当前设置：初始金币 {MatchSettings.StartingGold}　·　AI {SkillName()}　·　{UnlockText()}", 16,
-            new Color(0.52f, 0.68f, 0.80f, 0.75f), TextAnchor.MiddleCenter);
     }
-
-    static string SkillName()
-    {
-        int best = 0;
-        float bd = 9f;
-        for (int i = 0; i < MatchSettings.SkillSteps.Length; i++)
-        {
-            float d = Mathf.Abs(MatchSettings.SkillSteps[i] - MatchSettings.AiSkill);
-            if (d < bd) { bd = d; best = i; }
-        }
-        return MatchSettings.SkillNames[best];
-    }
-
-    static string UnlockText()
-        => MatchSettings.AirFromStart ? "开局就开放"
-         : MatchSettings.UnlockMinutes <= 0 ? "开局就开放"
-         : $"空战 {MatchSettings.UnlockMinutes} 分钟后开放";
 }

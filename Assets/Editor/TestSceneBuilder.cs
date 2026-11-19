@@ -5,11 +5,11 @@ using UnityEditor.SceneManagement;
 /// <summary>
 /// 阶段 1-2 测试场景：40×40 地形（24°缓坡 + 32°陡坡 + 水塘 + 海湾）+ 三域载具。
 /// 载具优先用精细模型（Assets/Models/Vehicles/{id}.prefab 或 .glb），没有就用方块占位。
-/// 菜单：Tools/铁皮黎明/生成阶段1测试场景
+/// 菜单：Tools/最后校射/生成阶段1测试场景
 /// </summary>
 public static class TestSceneBuilder
 {
-    [MenuItem("Tools/铁皮黎明/生成阶段1测试场景")]
+    [MenuItem("Tools/最后校射/生成阶段1测试场景")]
     public static void Build()
     {
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);

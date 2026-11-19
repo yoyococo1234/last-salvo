@@ -26,13 +26,13 @@ public class MatchDef : ScriptableObject
     [Tooltip("复活基础费")]
     public int respawnBase = 80;
     [Tooltip("每复活一次，费用乘这个数。1.22 ≈ 9分钟一局，1.12 ≈ 15分钟")]
-    public float respawnGrowth = 1.22f;
+    public float respawnGrowth = 1.05f;
 
     [Header("换车（递增）")]
     [Tooltip("每换一次车，该玩家的车价乘这个数")]
-    public float swapGrowth = 1.15f;
+    public float swapGrowth = 1.05f;
     [Tooltip("车价最多涨到几倍")]
-    public float swapGrowthCap = 3f;
+    public float swapGrowthCap = 1.5f;
 
     [Header("收入（固定，不随通胀）")]
     [Tooltip("击杀奖励 = 目标载具基础价 × 该比例")]

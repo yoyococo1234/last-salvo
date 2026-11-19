@@ -13,7 +13,7 @@ using UnityEngine;
 /// 车体/炮塔/履带装配 + 材质替换），把它挂在一个临时根节点上，挪到远处（y = -3000，附近什么都没有），
 /// 用一台临时相机打两盏灯渲到 RenderTexture，读像素存 PNG。
 ///
-/// 用法：菜单 `Tools → 铁皮黎明 → 生成载具缩略图`，或从命令行调 <see cref="Generate"/>。
+/// 用法：菜单 `Tools → 最后校射 → 生成载具缩略图`，或从命令行调 <see cref="Generate"/>。
 /// 输出：`Assets/Resources/UiThumbs/&lt;VehicleDef 资产名&gt;.png`
 /// 运行时：`Resources.Load&lt;Texture2D&gt;("UiThumbs/" + def.name)`
 /// </summary>
@@ -28,7 +28,7 @@ public static class UiThumbGen
     // 相机方向（相对车体，归一化后使用）。先渲一张看是不是"前 3/4"，不对就改这里。
     static readonly Vector3 CamDir = new Vector3(-0.95f, 0.46f, 1.05f);
 
-    [MenuItem("Tools/铁皮黎明/生成载具缩略图")]
+    [MenuItem("Tools/最后校射/生成载具缩略图")]
     public static void GenerateMenu() => Generate();
 
     public static void Generate()
